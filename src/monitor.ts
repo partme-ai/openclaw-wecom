@@ -7,16 +7,17 @@ import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
 import type { ResolvedAgentAccount } from "./types/index.js";
 import type { ResolvedBotAccount } from "./types/index.js";
-import type { WecomInboundMessage, WecomInboundQuote } from "./types.js";
+import type { WecomBotInboundMessage as WecomInboundMessage, WecomInboundQuote } from "./types/index.js";
 import { decryptWecomEncrypted, encryptWecomPlaintext, verifyWecomSignature, computeWecomMsgSignature } from "./crypto.js";
+import { extractEncryptFromXml } from "./crypto/xml.js";
 import { getWecomRuntime } from "./runtime.js";
-import { decryptWecomMedia, decryptWecomMediaWithHttp } from "./media.js";
-import { WEBHOOK_PATHS } from "./types/constants.js";
+import { decryptWecomMediaWithMeta } from "./media.js";
+import { WEBHOOK_PATHS, LIMITS as WECOM_LIMITS } from "./types/constants.js";
 import { handleAgentWebhook } from "./agent/index.js";
-import { resolveWecomAccounts, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes } from "./config/index.js";
+import { resolveWecomAccount, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "./config/index.js";
 import { wecomFetch } from "./http.js";
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
-import axios from "axios";
+import { extractAgentId, parseXml } from "./shared/xml-parser.js";
 
 /**
  * **核心监控模块 (Monitor Loop)**
@@ -28,6 +29,7 @@ import axios from "axios";
 import type { WecomRuntimeEnv, WecomWebhookTarget, StreamState, PendingInbound, ActiveReplyState } from "./monitor/types.js";
 import { monitorState, LIMITS } from "./monitor/state.js";
 import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "./shared/command-auth.js";
+import { generateAgentId, shouldUseDynamicAgent, ensureDynamicAgentListed } from "./dynamic-agent.js";
 
 // Global State
 monitorState.streamStore.setFlushHandler((pending) => void flushPending(pending));
@@ -44,11 +46,10 @@ type AgentWebhookTarget = {
   agent: ResolvedAgentAccount;
   config: OpenClawConfig;
   runtime: WecomRuntimeEnv;
+  path: string;
   // ...
 };
-const agentTargets = new Map<string, AgentWebhookTarget>();
-
-const pendingInbounds = new Map<string, PendingInbound>();
+const agentTargets = new Map<string, AgentWebhookTarget[]>();
 
 const STREAM_MAX_BYTES = LIMITS.STREAM_MAX_BYTES;
 const STREAM_MAX_DM_BYTES = 200_000;
@@ -213,6 +214,109 @@ function resolveSignatureParam(params: URLSearchParams): string {
   );
 }
 
+type RouteFailureReason =
+  | "wecom_account_not_found"
+  | "wecom_account_conflict"
+  | "wecom_identity_mismatch"
+  | "wecom_matrix_path_required";
+
+function isNonMatrixWecomBasePath(path: string): boolean {
+  return (
+    path === WEBHOOK_PATHS.BOT ||
+    path === WEBHOOK_PATHS.BOT_ALT ||
+    path === WEBHOOK_PATHS.AGENT ||
+    path === WEBHOOK_PATHS.BOT_PLUGIN ||
+    path === WEBHOOK_PATHS.AGENT_PLUGIN
+  );
+}
+
+function hasMatrixExplicitRoutesRegistered(): boolean {
+  for (const key of webhookTargets.keys()) {
+    if (key.startsWith(`${WEBHOOK_PATHS.BOT_ALT}/`)) return true;
+    if (key.startsWith(`${WEBHOOK_PATHS.BOT_PLUGIN}/`)) return true;
+  }
+  for (const key of agentTargets.keys()) {
+    if (key.startsWith(`${WEBHOOK_PATHS.AGENT}/`)) return true;
+    if (key.startsWith(`${WEBHOOK_PATHS.AGENT_PLUGIN}/`)) return true;
+  }
+  return false;
+}
+
+function maskAccountId(accountId: string): string {
+  const normalized = accountId.trim();
+  if (!normalized) return "***";
+  if (normalized.length <= 4) return `${normalized[0] ?? "*"}***`;
+  return `${normalized.slice(0, 2)}***${normalized.slice(-2)}`;
+}
+
+function logRouteFailure(params: {
+  reqId: string;
+  path: string;
+  method: string;
+  reason: RouteFailureReason;
+  candidateAccountIds: string[];
+}): void {
+  const payload = {
+    reqId: params.reqId,
+    path: params.path,
+    method: params.method,
+    reason: params.reason,
+    candidateAccountIds: params.candidateAccountIds.map(maskAccountId),
+  };
+  console.error(`[wecom] route-error ${JSON.stringify(payload)}`);
+}
+
+function writeRouteFailure(
+  res: ServerResponse,
+  reason: RouteFailureReason,
+  message: string,
+): void {
+  res.statusCode = 401;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify({ error: reason, message }));
+}
+
+async function readTextBody(req: IncomingMessage, maxBytes: number): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  return await new Promise((resolve) => {
+    req.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        resolve({ ok: false as const, error: "payload too large" });
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      resolve({ ok: true as const, value: Buffer.concat(chunks).toString("utf8") });
+    });
+    req.on("error", (err) => {
+      resolve({ ok: false as const, error: err instanceof Error ? err.message : String(err) });
+    });
+  });
+}
+
+function normalizeAgentIdValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function resolveBotIdentitySet(target: WecomWebhookTarget): Set<string> {
+  const ids = new Set<string>();
+  const single = target.account.config.aibotid?.trim();
+  if (single) ids.add(single);
+  for (const botId of target.account.config.botIds ?? []) {
+    const normalized = String(botId ?? "").trim();
+    if (normalized) ids.add(normalized);
+  }
+  return ids;
+}
+
 function buildStreamPlaceholderReply(params: {
   streamId: string;
   placeholderContent?: string;
@@ -283,8 +387,8 @@ function computeTaskKey(target: WecomWebhookTarget, msg: WecomInboundMessage): s
   return `bot:${target.account.accountId}:${aibotid}:${msgid}`;
 }
 
-function resolveAgentAccountOrUndefined(cfg: OpenClawConfig): ResolvedAgentAccount | undefined {
-  const agent = resolveWecomAccounts(cfg).agent;
+function resolveAgentAccountOrUndefined(cfg: OpenClawConfig, accountId: string): ResolvedAgentAccount | undefined {
+  const agent = resolveWecomAccount({ cfg, accountId }).agent;
   return agent?.configured ? agent : undefined;
 }
 
@@ -337,6 +441,27 @@ async function sendBotFallbackPromptNow(params: { streamId: string; text: string
     );
     if (!res.ok) {
       throw new Error(`fallback prompt push failed: ${res.status}`);
+    }
+  });
+}
+
+async function pushFinalStreamReplyNow(streamId: string): Promise<void> {
+  const state = streamStore.getStream(streamId);
+  const responseUrl = getActiveReplyUrl(streamId);
+  if (!state || !responseUrl) return;
+  const finalReply = buildStreamReplyFromState(state) as unknown as Record<string, unknown>;
+  await useActiveReplyOnce(streamId, async ({ responseUrl, proxyUrl }) => {
+    const res = await wecomFetch(
+      responseUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(finalReply),
+      },
+      { proxyUrl, timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
+    );
+    if (!res.ok) {
+      throw new Error(`final stream push failed: ${res.status}`);
     }
   });
 }
@@ -404,10 +529,10 @@ function extractLocalImagePathsFromText(params: {
   const mustAlsoAppearIn = params.mustAlsoAppearIn;
   if (!text.trim()) return [];
 
-  // Conservative: only accept common macOS absolute paths for images.
+  // Conservative: only accept common absolute paths for macOS/Linux hosts.
   // Also require that the exact path appeared in the user's original message to prevent exfil.
   const exts = "(png|jpg|jpeg|gif|webp|bmp)";
-  const re = new RegExp(String.raw`(\/(?:Users|tmp)\/[^\s"'<>]+?\.${exts})`, "gi");
+  const re = new RegExp(String.raw`(\/(?:Users|tmp|root|home)\/[^\s"'<>]+?\.${exts})`, "gi");
   const found = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
@@ -422,9 +547,9 @@ function extractLocalImagePathsFromText(params: {
 function extractLocalFilePathsFromText(text: string): string[] {
   if (!text.trim()) return [];
 
-  // Conservative: only accept common macOS absolute paths.
+  // Conservative: only accept common absolute paths for macOS/Linux hosts.
   // This is primarily for “send local file” style requests (operator/debug usage).
-  const re = new RegExp(String.raw`(\/(?:Users|tmp)\/[^\s"'<>]+)`, "g");
+  const re = new RegExp(String.raw`(\/(?:Users|tmp|root|home)\/[^\s"'<>]+)`, "g");
   const found = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
@@ -435,23 +560,287 @@ function extractLocalFilePathsFromText(text: string): string[] {
   return Array.from(found);
 }
 
+const MIME_BY_EXT: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  pdf: "application/pdf",
+  txt: "text/plain",
+  csv: "text/csv",
+  tsv: "text/tab-separated-values",
+  md: "text/markdown",
+  json: "application/json",
+  xml: "application/xml",
+  yaml: "application/yaml",
+  yml: "application/yaml",
+  zip: "application/zip",
+  rar: "application/vnd.rar",
+  "7z": "application/x-7z-compressed",
+  tar: "application/x-tar",
+  gz: "application/gzip",
+  tgz: "application/gzip",
+  doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  rtf: "application/rtf",
+  odt: "application/vnd.oasis.opendocument.text",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  amr: "voice/amr",
+  m4a: "audio/mp4",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+};
+
+const EXT_BY_MIME: Record<string, string> = {
+  ...Object.fromEntries(Object.entries(MIME_BY_EXT).map(([ext, mime]) => [mime, ext])),
+  "application/octet-stream": "bin",
+};
+
+const GENERIC_CONTENT_TYPES = new Set([
+  "application/octet-stream",
+  "binary/octet-stream",
+  "application/download",
+]);
+
+function normalizeContentType(raw?: string | null): string | undefined {
+  const normalized = String(raw ?? "").trim().split(";")[0]?.trim().toLowerCase();
+  return normalized || undefined;
+}
+
+function isGenericContentType(raw?: string | null): boolean {
+  const normalized = normalizeContentType(raw);
+  if (!normalized) return true;
+  return GENERIC_CONTENT_TYPES.has(normalized);
+}
+
 function guessContentTypeFromPath(filePath: string): string | undefined {
   const ext = filePath.split(".").pop()?.toLowerCase();
   if (!ext) return undefined;
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    bmp: "image/bmp",
-    pdf: "application/pdf",
-    txt: "text/plain",
-    md: "text/markdown",
-    json: "application/json",
-    zip: "application/zip",
-  };
-  return map[ext];
+  return MIME_BY_EXT[ext];
+}
+
+function guessExtensionFromContentType(contentType?: string): string | undefined {
+  const normalized = normalizeContentType(contentType);
+  if (!normalized) return undefined;
+  if (normalized === "image/jpeg") return "jpg";
+  return EXT_BY_MIME[normalized];
+}
+
+function extractFileNameFromUrl(rawUrl?: string): string | undefined {
+  const s = String(rawUrl ?? "").trim();
+  if (!s) return undefined;
+  try {
+    const u = new URL(s);
+    const name = decodeURIComponent(u.pathname.split("/").pop() ?? "").trim();
+    return name || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sanitizeInboundFilename(raw?: string): string | undefined {
+  const s = String(raw ?? "").trim();
+  if (!s) return undefined;
+  const base = s.split(/[\\/]/).pop()?.trim() ?? "";
+  if (!base) return undefined;
+  const sanitized = base.replace(/[\u0000-\u001f<>:"|?*]/g, "_").trim();
+  return sanitized || undefined;
+}
+
+function hasLikelyExtension(name?: string): boolean {
+  if (!name) return false;
+  return /\.[a-z0-9]{1,16}$/i.test(name);
+}
+
+function detectMimeFromBuffer(buffer: Buffer): string | undefined {
+  if (!buffer || buffer.length < 4) return undefined;
+
+  // PNG
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return "image/png";
+  }
+
+  // JPEG
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "image/jpeg";
+  }
+
+  // GIF
+  if (buffer.subarray(0, 6).toString("ascii") === "GIF87a" || buffer.subarray(0, 6).toString("ascii") === "GIF89a") {
+    return "image/gif";
+  }
+
+  // WEBP
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP") {
+    return "image/webp";
+  }
+
+  // BMP
+  if (buffer[0] === 0x42 && buffer[1] === 0x4d) {
+    return "image/bmp";
+  }
+
+  // PDF
+  if (buffer.subarray(0, 5).toString("ascii") === "%PDF-") {
+    return "application/pdf";
+  }
+
+  // OGG
+  if (buffer.subarray(0, 4).toString("ascii") === "OggS") {
+    return "audio/ogg";
+  }
+
+  // WAV
+  if (buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WAVE") {
+    return "audio/wav";
+  }
+
+  // MP3
+  if (buffer.subarray(0, 3).toString("ascii") === "ID3" || (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0)) {
+    return "audio/mpeg";
+  }
+
+  // MP4/MOV family
+  if (buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp") {
+    return "video/mp4";
+  }
+
+  // Legacy Office (OLE Compound File)
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0xd0 &&
+    buffer[1] === 0xcf &&
+    buffer[2] === 0x11 &&
+    buffer[3] === 0xe0 &&
+    buffer[4] === 0xa1 &&
+    buffer[5] === 0xb1 &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0xe1
+  ) {
+    return "application/msword";
+  }
+
+  // ZIP / OOXML
+  const zipMagic =
+    (buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04) ||
+    (buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x05 && buffer[3] === 0x06) ||
+    (buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x07 && buffer[3] === 0x08);
+  if (zipMagic) {
+    const probe = buffer.subarray(0, Math.min(buffer.length, 512 * 1024));
+    if (probe.includes(Buffer.from("word/"))) {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    if (probe.includes(Buffer.from("xl/"))) {
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
+    if (probe.includes(Buffer.from("ppt/"))) {
+      return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+    }
+    return "application/zip";
+  }
+
+  // Plain text heuristic
+  const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
+  let printable = 0;
+  for (const b of sample) {
+    if (b === 0x00) return undefined;
+    if (b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e)) {
+      printable += 1;
+    }
+  }
+  if (sample.length > 0 && printable / sample.length > 0.95) {
+    return "text/plain";
+  }
+
+  return undefined;
+}
+
+function resolveInlineFileName(input: unknown): string | undefined {
+  const raw = String(input ?? "").trim();
+  return sanitizeInboundFilename(raw);
+}
+
+function pickBotFileName(msg: WecomInboundMessage, item?: Record<string, any>): string | undefined {
+  const fromItem = item
+    ? resolveInlineFileName(
+      item?.filename ??
+      item?.file_name ??
+      item?.fileName ??
+      item?.name ??
+      item?.title,
+    )
+    : undefined;
+  if (fromItem) return fromItem;
+
+  const fromFile = resolveInlineFileName(
+    (msg as any)?.file?.filename ??
+    (msg as any)?.file?.file_name ??
+    (msg as any)?.file?.fileName ??
+    (msg as any)?.file?.name ??
+    (msg as any)?.file?.title ??
+    (msg as any)?.filename ??
+    (msg as any)?.fileName ??
+    (msg as any)?.FileName,
+  );
+  return fromFile;
+}
+
+function inferInboundMediaMeta(params: {
+  kind: "image" | "file";
+  buffer: Buffer;
+  sourceUrl?: string;
+  sourceContentType?: string;
+  sourceFilename?: string;
+  explicitFilename?: string;
+}): { contentType: string; filename: string } {
+  const headerType = normalizeContentType(params.sourceContentType);
+  const magicType = detectMimeFromBuffer(params.buffer);
+  const rawUrlName = sanitizeInboundFilename(extractFileNameFromUrl(params.sourceUrl));
+  const guessedByUrl = hasLikelyExtension(rawUrlName) ? rawUrlName : undefined;
+  const explicitName = sanitizeInboundFilename(params.explicitFilename);
+  const sourceName = sanitizeInboundFilename(params.sourceFilename);
+  const chosenName = explicitName || sourceName || guessedByUrl;
+  const typeByName = chosenName ? guessContentTypeFromPath(chosenName) : undefined;
+
+  let contentType: string;
+  if (params.kind === "image") {
+    if (magicType?.startsWith("image/")) contentType = magicType;
+    else if (headerType?.startsWith("image/")) contentType = headerType;
+    else if (typeByName?.startsWith("image/")) contentType = typeByName;
+    else contentType = "image/jpeg";
+  } else {
+    contentType =
+      magicType ||
+      (!isGenericContentType(headerType) ? headerType! : undefined) ||
+      typeByName ||
+      "application/octet-stream";
+  }
+
+  const hasExt = Boolean(chosenName && /\.[a-z0-9]{1,16}$/i.test(chosenName));
+  const ext = guessExtensionFromContentType(contentType) || (params.kind === "image" ? "jpg" : "bin");
+  const filename = chosenName
+    ? (hasExt ? chosenName : `${chosenName}.${ext}`)
+    : `${params.kind}.${ext}`;
+
+  return { contentType, filename };
 }
 
 function looksLikeSendLocalFileIntent(rawBody: string): boolean {
@@ -500,6 +889,40 @@ function resolveWecomSenderUserId(msg: WecomInboundMessage): string | undefined 
   return legacy || undefined;
 }
 
+export type BotInboundProcessDecision = {
+  shouldProcess: boolean;
+  reason: string;
+  senderUserId?: string;
+  chatId?: string;
+};
+
+/**
+ * 仅允许“真实用户消息”进入 Bot 会话:
+ * - 发送者缺失 -> 丢弃，避免落到 unknown 会话导致串会话
+ * - 发送者是 sys -> 丢弃，避免系统回调触发 AI 自动回复
+ * - 群消息缺失 chatid -> 丢弃，避免 group:unknown 串群
+ */
+export function shouldProcessBotInboundMessage(msg: WecomInboundMessage): BotInboundProcessDecision {
+  const senderUserId = resolveWecomSenderUserId(msg)?.trim();
+  if (!senderUserId) {
+    return { shouldProcess: false, reason: "missing_sender" };
+  }
+  if (senderUserId.toLowerCase() === "sys") {
+    return { shouldProcess: false, reason: "system_sender" };
+  }
+
+  const chatType = String(msg.chattype ?? "").trim().toLowerCase();
+  if (chatType === "group") {
+    const chatId = msg.chatid?.trim();
+    if (!chatId) {
+      return { shouldProcess: false, reason: "missing_chatid", senderUserId };
+    }
+    return { shouldProcess: true, reason: "user_message", senderUserId, chatId };
+  }
+
+  return { shouldProcess: true, reason: "user_message", senderUserId, chatId: senderUserId };
+}
+
 function parseWecomPlainMessage(raw: string): WecomInboundMessage {
   const parsed = JSON.parse(raw) as unknown;
   if (!parsed || typeof parsed !== "object") {
@@ -540,13 +963,21 @@ async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInbou
     const url = String((msg as any).image?.url ?? "").trim();
     if (url && aesKey) {
       try {
-        const buf = await decryptWecomMediaWithHttp(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const inferred = inferInboundMediaMeta({
+          kind: "image",
+          buffer: decrypted.buffer,
+          sourceUrl: decrypted.sourceUrl || url,
+          sourceContentType: decrypted.sourceContentType,
+          sourceFilename: decrypted.sourceFilename,
+          explicitFilename: pickBotFileName(msg),
+        });
         return {
           body: "[image]",
           media: {
-            buffer: buf,
-            contentType: "image/jpeg", // WeCom images are usually generic; safest assumption or could act as generic
-            filename: "image.jpg",
+            buffer: decrypted.buffer,
+            contentType: inferred.contentType,
+            filename: inferred.filename,
           }
         };
       } catch (err) {
@@ -554,7 +985,10 @@ async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInbou
         target.runtime.error?.(
           `图片解密失败: ${String(err)}; 可调大 channels.wecom.media.maxBytes（当前=${maxBytes}）例如：openclaw config set channels.wecom.media.maxBytes ${50 * 1024 * 1024}`,
         );
-        return { body: `[image] (decryption failed: ${typeof err === 'object' && err ? (err as any).message : String(err)})` };
+        const errorMessage = typeof err === 'object' && err 
+          ? `${(err as any).message}${((err as any).cause) ? ` (cause: ${String((err as any).cause)})` : ''}` 
+          : String(err);
+        return { body: `[image] (decryption failed: ${errorMessage})` };
       }
     }
   }
@@ -563,20 +997,31 @@ async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInbou
     const url = String((msg as any).file?.url ?? "").trim();
     if (url && aesKey) {
       try {
-        const buf = await decryptWecomMediaWithHttp(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const inferred = inferInboundMediaMeta({
+          kind: "file",
+          buffer: decrypted.buffer,
+          sourceUrl: decrypted.sourceUrl || url,
+          sourceContentType: decrypted.sourceContentType,
+          sourceFilename: decrypted.sourceFilename,
+          explicitFilename: pickBotFileName(msg),
+        });
         return {
           body: "[file]",
           media: {
-            buffer: buf,
-            contentType: "application/octet-stream",
-            filename: "file.bin", // WeCom doesn't guarantee filename in webhook payload always, defaulting
+            buffer: decrypted.buffer,
+            contentType: inferred.contentType,
+            filename: inferred.filename,
           }
         };
       } catch (err) {
         target.runtime.error?.(
           `Failed to decrypt inbound file: ${String(err)}; 可调大 channels.wecom.media.maxBytes（当前=${maxBytes}）例如：openclaw config set channels.wecom.media.maxBytes ${50 * 1024 * 1024}`,
         );
-        return { body: `[file] (decryption failed: ${typeof err === 'object' && err ? (err as any).message : String(err)})` };
+        const errorMessage = typeof err === 'object' && err 
+          ? `${(err as any).message}${((err as any).cause) ? ` (cause: ${String((err as any).cause)})` : ''}` 
+          : String(err);
+        return { body: `[file] (decryption failed: ${errorMessage})` };
       }
     }
   }
@@ -598,18 +1043,29 @@ async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInbou
           const url = String(item[t]?.url ?? "").trim();
           if (url) {
             try {
-              const buf = await decryptWecomMediaWithHttp(url, aesKey, { maxBytes, http: { proxyUrl } });
+              const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+              const inferred = inferInboundMediaMeta({
+                kind: t,
+                buffer: decrypted.buffer,
+                sourceUrl: decrypted.sourceUrl || url,
+                sourceContentType: decrypted.sourceContentType,
+                sourceFilename: decrypted.sourceFilename,
+                explicitFilename: pickBotFileName(msg, item?.[t]),
+              });
               foundMedia = {
-                buffer: buf,
-                contentType: t === "image" ? "image/jpeg" : "application/octet-stream",
-                filename: t === "image" ? "image.jpg" : "file.bin"
+                buffer: decrypted.buffer,
+                contentType: inferred.contentType,
+                filename: inferred.filename,
               };
               bodyParts.push(`[${t}]`);
             } catch (err) {
               target.runtime.error?.(
                 `Failed to decrypt mixed ${t}: ${String(err)}; 可调大 channels.wecom.media.maxBytes（当前=${maxBytes}）例如：openclaw config set channels.wecom.media.maxBytes ${50 * 1024 * 1024}`,
               );
-              bodyParts.push(`[${t}] (decryption failed)`);
+              const errorMessage = typeof err === 'object' && err 
+                ? `${(err as any).message}${((err as any).cause) ? ` (cause: ${String((err as any).cause)})` : ''}` 
+                : String(err);
+              bodyParts.push(`[${t}] (decryption failed: ${errorMessage})`);
             }
           } else {
             bodyParts.push(`[${t}]`);
@@ -835,11 +1291,65 @@ async function startAgentForStream(params: {
         streamStore.onStreamFinished(streamId);
         return;
       }
+
+      // 图片路径都读取失败时，切换到 Agent 私信兜底，并主动结束 Bot 流。
+      const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
+      const agentOk = Boolean(agentCfg);
+      const fallbackName = imagePaths.length === 1
+        ? (imagePaths[0]!.split("/").pop() || "image")
+        : `${imagePaths.length} 张图片`;
+      const prompt = buildFallbackPrompt({
+        kind: "media",
+        agentConfigured: agentOk,
+        userId: userid,
+        filename: fallbackName,
+        chatType,
+      });
+
+      streamStore.updateStream(streamId, (s) => {
+        s.fallbackMode = "error";
+        s.finished = true;
+        s.content = prompt;
+        s.fallbackPromptSentAt = s.fallbackPromptSentAt ?? Date.now();
+      });
+
+      try {
+        await sendBotFallbackPromptNow({ streamId, text: prompt });
+        logVerbose(target, `local-path: 图片读取失败后已推送兜底提示`);
+      } catch (err) {
+        target.runtime.error?.(`local-path: 图片读取失败后的兜底提示推送失败: ${String(err)}`);
+      }
+
+      if (agentCfg && userid && userid !== "unknown") {
+        for (const p of imagePaths) {
+          const guessedType = guessContentTypeFromPath(p);
+          try {
+            await sendAgentDmMedia({
+              agent: agentCfg,
+              userId: userid,
+              mediaUrlOrPath: p,
+              contentType: guessedType,
+              filename: p.split("/").pop() || "image",
+            });
+            streamStore.updateStream(streamId, (s) => {
+              s.agentMediaKeys = Array.from(new Set([...(s.agentMediaKeys ?? []), p]));
+            });
+            logVerbose(
+              target,
+              `local-path: 图片已通过 Agent 私信发送 user=${userid} path=${p} contentType=${guessedType ?? "unknown"}`,
+            );
+          } catch (err) {
+            target.runtime.error?.(`local-path: 图片 Agent 私信兜底失败 path=${p}: ${String(err)}`);
+          }
+        }
+      }
+      streamStore.onStreamFinished(streamId);
+      return;
     }
 
     // 2) 非图片文件：Bot 会话里提示 + Agent 私信兜底（目标锁定 userId）
     if (otherPaths.length > 0) {
-      const agentCfg = resolveAgentAccountOrUndefined(config);
+      const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
       const agentOk = Boolean(agentCfg);
 
       const filename = otherPaths.length === 1 ? otherPaths[0]!.split("/").pop()! : `${otherPaths.length} 个文件`;
@@ -878,18 +1388,22 @@ async function startAgentForStream(params: {
       for (const p of otherPaths) {
         const alreadySent = streamStore.getStream(streamId)?.agentMediaKeys?.includes(p);
         if (alreadySent) continue;
+        const guessedType = guessContentTypeFromPath(p);
         try {
           await sendAgentDmMedia({
             agent: agentCfg,
             userId: userid,
             mediaUrlOrPath: p,
-            contentType: guessContentTypeFromPath(p),
+            contentType: guessedType,
             filename: p.split("/").pop() || "file",
           });
           streamStore.updateStream(streamId, (s) => {
             s.agentMediaKeys = Array.from(new Set([...(s.agentMediaKeys ?? []), p]));
           });
-          logVerbose(target, `local-path: 文件已通过 Agent 私信发送 user=${userid} path=${p}`);
+          logVerbose(
+            target,
+            `local-path: 文件已通过 Agent 私信发送 user=${userid} path=${p} contentType=${guessedType ?? "unknown"}`,
+          );
         } catch (err) {
           target.runtime.error?.(`local-path: Agent 私信发送文件失败 path=${p}: ${String(err)}`);
         }
@@ -924,8 +1438,50 @@ async function startAgentForStream(params: {
     cfg: config,
     channel: "wecom",
     accountId: account.accountId,
-    peer: { kind: chatType === "group" ? "group" : "dm", id: chatId },
+    peer: { kind: chatType === "group" ? "group" : "direct", id: chatId },
   });
+
+  const useDynamicAgent = shouldUseDynamicAgent({
+    chatType: chatType === "group" ? "group" : "dm",
+    senderId: userid,
+    config,
+  });
+
+  if (shouldRejectWecomDefaultRoute({ cfg: config, matchedBy: route.matchedBy, useDynamicAgent })) {
+    const prompt =
+      `当前账号（${account.accountId}）未绑定 OpenClaw Agent，已拒绝回退到默认主智能体。` +
+      `请在 bindings 中添加：{"agentId":"你的Agent","match":{"channel":"wecom","accountId":"${account.accountId}"}}`;
+    target.runtime.error?.(
+      `[wecom] routing guard: blocked default fallback accountId=${account.accountId} matchedBy=${route.matchedBy} streamId=${streamId}`,
+    );
+    streamStore.updateStream(streamId, (s) => {
+      s.finished = true;
+      s.content = prompt;
+    });
+    try {
+      await sendBotFallbackPromptNow({ streamId, text: prompt });
+    } catch (err) {
+      target.runtime.error?.(`routing guard prompt push failed streamId=${streamId}: ${String(err)}`);
+    }
+    streamStore.onStreamFinished(streamId);
+    return;
+  }
+
+  // ===== 动态 Agent 路由注入 =====
+
+  if (useDynamicAgent) {
+    const targetAgentId = generateAgentId(
+      chatType === "group" ? "group" : "dm",
+      chatId,
+      account.accountId,
+    );
+    route.agentId = targetAgentId;
+    route.sessionKey = `agent:${targetAgentId}:wecom:${account.accountId}:${chatType === "group" ? "group" : "dm"}:${chatId}`;
+    // 异步添加到 agents.list（不阻塞）
+    ensureDynamicAgentListed(targetAgentId, core).catch(() => {});
+    logVerbose(target, `dynamic agent routing: ${targetAgentId}, sessionKey=${route.sessionKey}`);
+  }
+  // ===== 动态 Agent 路由注入结束 =====
 
   logVerbose(target, `starting agent processing (streamId=${streamId}, agentId=${route.agentId}, peerKind=${chatType}, peerId=${chatId})`);
   logVerbose(target, `启动 Agent 处理: streamId=${streamId} 路由=${route.agentId} 类型=${chatType} ID=${chatId}`);
@@ -1001,6 +1557,10 @@ async function startAgentForStream(params: {
     SenderName: userid,
     SenderId: userid,
     Provider: "wecom",
+    // Keep Surface aligned with OriginatingChannel for Bot-mode delivery.
+    // If Surface is "webchat", core dispatch treats this as cross-channel
+    // and routes replies via routeReply -> wecom outbound (Agent API),
+    // bypassing the Bot stream deliver path.
     Surface: "wecom",
     MessageSid: msg.msgid,
     CommandAuthorized: commandAuthorized,
@@ -1033,34 +1593,65 @@ async function startAgentForStream(params: {
   // 重要：message 工具不是 sandbox 工具，必须通过 cfg.tools.deny 禁用。
   // 否则 Agent 可能直接通过 message 工具私信/发群，绕过 Bot 交付链路，导致群里“没有任何提示”。
   const cfgForDispatch = (() => {
+    const baseAgents = (config as any)?.agents ?? {};
+    const baseAgentDefaults = (baseAgents as any)?.defaults ?? {};
+    const baseBlockChunk = (baseAgentDefaults as any)?.blockStreamingChunk ?? {};
+    const baseBlockCoalesce = (baseAgentDefaults as any)?.blockStreamingCoalesce ?? {};
     const baseTools = (config as any)?.tools ?? {};
     const baseSandbox = (baseTools as any)?.sandbox ?? {};
     const baseSandboxTools = (baseSandbox as any)?.tools ?? {};
-    const existingDeny = Array.isArray((baseSandboxTools as any).deny) ? ((baseSandboxTools as any).deny as string[]) : [];
-    const deny = Array.from(new Set([...existingDeny, "message"]));
+    const existingTopLevelDeny = Array.isArray((baseTools as any).deny) ? ((baseTools as any).deny as string[]) : [];
+    const existingSandboxDeny = Array.isArray((baseSandboxTools as any).deny) ? ((baseSandboxTools as any).deny as string[]) : [];
+    const topLevelDeny = Array.from(new Set([...existingTopLevelDeny, "message"]));
+    const sandboxDeny = Array.from(new Set([...existingSandboxDeny, "message"]));
     return {
       ...(config as any),
+      agents: {
+        ...baseAgents,
+        defaults: {
+          ...baseAgentDefaults,
+          // Bot 通道使用企业微信被动流式刷新，需要更小的块阈值，避免只在结束时一次性输出。
+          blockStreamingChunk: {
+            ...baseBlockChunk,
+            minChars: baseBlockChunk.minChars ?? 120,
+            maxChars: baseBlockChunk.maxChars ?? 360,
+            breakPreference: baseBlockChunk.breakPreference ?? "sentence",
+          },
+          blockStreamingCoalesce: {
+            ...baseBlockCoalesce,
+            minChars: baseBlockCoalesce.minChars ?? 120,
+            maxChars: baseBlockCoalesce.maxChars ?? 360,
+            idleMs: baseBlockCoalesce.idleMs ?? 250,
+          },
+        },
+      },
       tools: {
         ...baseTools,
+        deny: topLevelDeny,
         sandbox: {
           ...baseSandbox,
           tools: {
             ...baseSandboxTools,
-            deny,
+            deny: sandboxDeny,
           },
         },
       },
     } as OpenClawConfig;
   })();
-  logVerbose(target, `tool-policy: WeCom Bot 会话已禁用 message 工具（tools.sandbox.tools.deny += message，防止绕过 Bot 交付）`);
+  logVerbose(target, `tool-policy: WeCom Bot 会话已禁用 message 工具（tools.deny += message；并同步到 tools.sandbox.tools.deny，防止绕过 Bot 交付）`);
 
   // 调度 Agent 回复
   // 使用 dispatchReplyWithBufferedBlockDispatcher 可以处理流式输出 buffer
   await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx: ctxPayload,
     cfg: cfgForDispatch,
+    // WeCom Bot relies on passive stream-refresh callbacks; force block streaming on
+    // so the dispatcher emits incremental blocks instead of only a final message.
+    replyOptions: {
+      disableBlockStreaming: false,
+    },
     dispatcherOptions: {
-      deliver: async (payload) => {
+      deliver: async (payload, info) => {
         let text = payload.text ?? "";
 
         // 保护 <think> 标签不被 markdown 表格转换破坏
@@ -1131,9 +1722,10 @@ async function startAgentForStream(params: {
         if (!current.images) current.images = [];
         if (!current.agentMediaKeys) current.agentMediaKeys = [];
 
+        const deliverKind = info?.kind ?? "block";
         logVerbose(
           target,
-          `deliver: chatType=${current.chatType ?? chatType} user=${current.userId ?? userid} textLen=${text.length} mediaCount=${(payload.mediaUrls?.length ?? 0) + (payload.mediaUrl ? 1 : 0)}`,
+          `deliver: kind=${deliverKind} chatType=${current.chatType ?? chatType} user=${current.userId ?? userid} textLen=${text.length} mediaCount=${(payload.mediaUrls?.length ?? 0) + (payload.mediaUrl ? 1 : 0)}`,
         );
 
         // If the model referenced a local image path in its reply but did not emit mediaUrl(s),
@@ -1179,13 +1771,13 @@ async function startAgentForStream(params: {
           });
         }
 
-        // Timeout fallback (group only): near 6min window, stop bot stream and switch to Agent DM.
+        // Timeout fallback: near 6min window, stop bot stream and switch to Agent DM.
         const now = Date.now();
         const deadline = current.createdAt + BOT_WINDOW_MS;
         const switchAt = deadline - BOT_SWITCH_MARGIN_MS;
         const nearTimeout = !current.fallbackMode && !current.finished && now >= switchAt;
         if (nearTimeout) {
-          const agentCfg = resolveAgentAccountOrUndefined(config);
+          const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
           const agentOk = Boolean(agentCfg);
           const prompt = buildFallbackPrompt({
             kind: "timeout",
@@ -1214,10 +1806,10 @@ async function startAgentForStream(params: {
 
         const mediaUrls = payload.mediaUrls || (payload.mediaUrl ? [payload.mediaUrl] : []);
         for (const mediaPath of mediaUrls) {
+          let contentType: string | undefined;
+          let filename = mediaPath.split("/").pop() || "attachment";
           try {
             let buf: Buffer;
-            let contentType: string | undefined;
-            let filename: string;
 
             const looksLikeUrl = /^https?:\/\//i.test(mediaPath);
 
@@ -1243,7 +1835,7 @@ async function startAgentForStream(params: {
               logVerbose(target, `media: 识别为图片 contentType=${contentType} filename=${filename}`);
             } else {
               // Non-image media: Bot 不支持原样发送（尤其群聊），统一切换到 Agent 私信兜底，并在 Bot 会话里提示用户。
-              const agentCfg = resolveAgentAccountOrUndefined(config);
+              const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
               const agentOk = Boolean(agentCfg);
               const alreadySent = current.agentMediaKeys.includes(mediaPath);
               logVerbose(
@@ -1294,6 +1886,48 @@ async function startAgentForStream(params: {
             }
           } catch (err) {
             target.runtime.error?.(`Failed to process outbound media: ${mediaPath}: ${String(err)}`);
+            const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
+            const agentOk = Boolean(agentCfg);
+            const fallbackFilename = filename || mediaPath.split("/").pop() || "attachment";
+            if (agentCfg && current.userId && !current.agentMediaKeys.includes(mediaPath)) {
+              try {
+                await sendAgentDmMedia({
+                  agent: agentCfg,
+                  userId: current.userId,
+                  mediaUrlOrPath: mediaPath,
+                  contentType,
+                  filename: fallbackFilename,
+                });
+                streamStore.updateStream(streamId, (s) => {
+                  s.agentMediaKeys = Array.from(new Set([...(s.agentMediaKeys ?? []), mediaPath]));
+                });
+                logVerbose(target, `fallback(error): 媒体处理失败后已通过 Agent 私信发送 user=${current.userId}`);
+              } catch (sendErr) {
+                target.runtime.error?.(`fallback(error): 媒体处理失败后的 Agent 私信发送也失败: ${String(sendErr)}`);
+              }
+            }
+            if (!current.fallbackMode) {
+              const prompt = buildFallbackPrompt({
+                kind: "error",
+                agentConfigured: agentOk,
+                userId: current.userId,
+                filename: fallbackFilename,
+                chatType: current.chatType,
+              });
+              streamStore.updateStream(streamId, (s) => {
+                s.fallbackMode = "error";
+                s.finished = true;
+                s.content = prompt;
+                s.fallbackPromptSentAt = s.fallbackPromptSentAt ?? Date.now();
+              });
+              try {
+                await sendBotFallbackPromptNow({ streamId, text: prompt });
+                logVerbose(target, `fallback(error): 群内提示已推送`);
+              } catch (pushErr) {
+                target.runtime.error?.(`wecom bot fallback prompt push failed (error) streamId=${streamId}: ${String(pushErr)}`);
+              }
+            }
+            return;
           }
         }
 
@@ -1332,12 +1966,18 @@ async function startAgentForStream(params: {
     }
   }
 
+  streamStore.updateStream(streamId, (s) => {
+    if (!s.content.trim() && !(s.images?.length ?? 0)) {
+      s.content = "✅ 已处理完成。";
+    }
+  });
+
   streamStore.markFinished(streamId);
 
   // Timeout fallback final delivery (Agent DM): send once after the agent run completes.
   const finishedState = streamStore.getStream(streamId);
   if (finishedState?.fallbackMode === "timeout" && !finishedState.finalDeliveredAt) {
-    const agentCfg = resolveAgentAccountOrUndefined(config);
+    const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
     if (!agentCfg) {
       // Agent not configured - group prompt already explains the situation.
       streamStore.updateStream(streamId, (s) => { s.finalDeliveredAt = Date.now(); });
@@ -1356,35 +1996,19 @@ async function startAgentForStream(params: {
     }
   }
 
-  // Bot 群聊图片兜底：
-  // 依赖企业微信的“流式消息刷新”回调来拉取最终消息有时会出现客户端未能及时拉取到最后一帧的情况，
-  // 导致最终的图片(msg_item)没有展示。若存在 response_url，则在流结束后主动推送一次最终 stream 回复。
-  // 注：该行为以 response_url 是否可用为准；失败则仅记录日志，不影响原有刷新链路。
-  if (chatType === "group") {
-    const state = streamStore.getStream(streamId);
-    const hasImages = Boolean(state?.images?.length);
-    const responseUrl = getActiveReplyUrl(streamId);
-    if (state && hasImages && responseUrl) {
-      const finalReply = buildStreamReplyFromState(state) as unknown as Record<string, unknown>;
-      try {
-        await useActiveReplyOnce(streamId, async ({ responseUrl, proxyUrl }) => {
-          const res = await wecomFetch(
-            responseUrl,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(finalReply),
-            },
-            { proxyUrl, timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
-          );
-          if (!res.ok) {
-            throw new Error(`final stream push failed: ${res.status}`);
-          }
-        });
-        logVerbose(target, `final stream pushed via response_url (group) streamId=${streamId}, images=${state.images?.length ?? 0}`);
-      } catch (err) {
-        target.runtime.error?.(`final stream push via response_url failed (group) streamId=${streamId}: ${String(err)}`);
-      }
+  // 统一终结：只要 response_url 可用，尽量主动推一次最终流帧，确保“思考中”能及时收口。
+  // 失败仅记录日志，不影响 stream_refresh 被动拉取链路。
+  const stateAfterFinish = streamStore.getStream(streamId);
+  const responseUrl = getActiveReplyUrl(streamId);
+  if (stateAfterFinish && responseUrl) {
+    try {
+      await pushFinalStreamReplyNow(streamId);
+      logVerbose(
+        target,
+        `final stream pushed via response_url streamId=${streamId}, chatType=${chatType}, images=${stateAfterFinish.images?.length ?? 0}`,
+      );
+    } catch (err) {
+      target.runtime.error?.(`final stream push via response_url failed streamId=${streamId}: ${String(err)}`);
     }
   }
 
@@ -1480,11 +2104,15 @@ export function registerWecomWebhookTarget(target: WecomWebhookTarget): () => vo
  * 注册 Agent 模式 Webhook Target
  */
 export function registerAgentWebhookTarget(target: AgentWebhookTarget): () => void {
-  const key = WEBHOOK_PATHS.AGENT;
-  agentTargets.set(key, target);
+  const key = normalizeWebhookPath(target.path);
+  const normalizedTarget = { ...target, path: key };
+  const existing = agentTargets.get(key) ?? [];
+  agentTargets.set(key, [...existing, normalizedTarget]);
   ensurePruneTimer();
   return () => {
-    agentTargets.delete(key);
+    const updated = (agentTargets.get(key) ?? []).filter((entry) => entry !== normalizedTarget);
+    if (updated.length > 0) agentTargets.set(key, updated);
+    else agentTargets.delete(key);
     checkPruneTimer();
   };
 }
@@ -1494,7 +2122,7 @@ export function registerAgentWebhookTarget(target: AgentWebhookTarget): () => vo
  * 
  * 处理来自企业微信的所有 Webhook 请求。
  * 职责：
- * 1. 路由分发：区分 Agent 模式 (`/wecom/agent`) 和 Bot 模式 (其他路径)。
+ * 1. 路由分发：优先按 `/plugins/wecom/{bot|agent}/{accountId}` 分流，并兼容历史 `/wecom/*` 路径。
  * 2. 安全校验：验证企业微信签名 (Signature)。
  * 3. 消息解密：处理企业微信的加密包。
  * 4. 响应处理：
@@ -1518,27 +2146,201 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
     `[wecom] inbound(http): reqId=${reqId} path=${path} method=${req.method ?? "UNKNOWN"} remote=${remote} ua=${ua ? `"${ua}"` : "N/A"} contentLength=${cl || "N/A"} query={timestamp:${hasTimestamp},nonce:${hasNonce},echostr:${hasEchostr},msg_signature:${hasMsgSig},signature:${hasSignature}}`,
   );
 
-  // Agent 模式路由: /wecom/agent
-  if (path === WEBHOOK_PATHS.AGENT) {
-    const agentTarget = agentTargets.get(WEBHOOK_PATHS.AGENT);
-    if (agentTarget) {
-      const core = getWecomRuntime();
+  if (hasMatrixExplicitRoutesRegistered() && isNonMatrixWecomBasePath(path)) {
+    // 兼容老路径：如果老路径已有 target 注册（通过 gateway-monitor 兼容注册），放行走正常签名验证
+    const hasBotTarget = (webhookTargets.get(path) ?? []).length > 0;
+    const hasAgentTarget = (agentTargets.get(path) ?? []).length > 0;
+    if (!hasBotTarget && !hasAgentTarget) {
+      logRouteFailure({
+        reqId,
+        path,
+        method: req.method ?? "UNKNOWN",
+        reason: "wecom_matrix_path_required",
+        candidateAccountIds: [],
+      });
+      writeRouteFailure(
+        res,
+        "wecom_matrix_path_required",
+        "Matrix mode requires explicit account path. Use /plugins/wecom/bot/{accountId} or /plugins/wecom/agent/{accountId}.",
+      );
+      return true;
+    }
+  }
+
+  const isAgentPathCandidate =
+    path === WEBHOOK_PATHS.AGENT ||
+    path === WEBHOOK_PATHS.AGENT_PLUGIN ||
+    path.startsWith(`${WEBHOOK_PATHS.AGENT}/`) ||
+    path.startsWith(`${WEBHOOK_PATHS.AGENT_PLUGIN}/`);
+  const matchedAgentTargets = agentTargets.get(path) ?? [];
+  if (matchedAgentTargets.length > 0 || isAgentPathCandidate) {
+    const targets = matchedAgentTargets;
+    if (targets.length > 0) {
       const query = resolveQueryParams(req);
       const timestamp = query.get("timestamp") ?? "";
       const nonce = query.get("nonce") ?? "";
-      const hasSig = Boolean(query.get("msg_signature"));
+      const signature = resolveSignatureParam(query);
+      const hasSig = Boolean(signature);
       const remote = req.socket?.remoteAddress ?? "unknown";
-      agentTarget.runtime.log?.(
-        `[wecom] inbound(agent): reqId=${reqId} method=${req.method ?? "UNKNOWN"} remote=${remote} timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${hasSig ? "yes" : "no"}`,
+
+      if (req.method === "GET") {
+        const echostr = query.get("echostr") ?? "";
+        const signatureMatches = targets.filter((target) =>
+          verifyWecomSignature({
+            token: target.agent.token,
+            timestamp,
+            nonce,
+            encrypt: echostr,
+            signature,
+          }),
+        );
+        if (signatureMatches.length !== 1) {
+          const reason: RouteFailureReason =
+            signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+          const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+            (target) => target.agent.accountId,
+          );
+          logRouteFailure({
+            reqId,
+            path,
+            method: "GET",
+            reason,
+            candidateAccountIds: candidateIds,
+          });
+          writeRouteFailure(
+            res,
+            reason,
+            reason === "wecom_account_conflict"
+              ? "Agent callback account conflict: multiple accounts matched signature."
+              : "Agent callback account not found: signature verification failed.",
+          );
+          return true;
+        }
+        const selected = signatureMatches[0]!;
+        try {
+          const plain = decryptWecomEncrypted({
+            encodingAESKey: selected.agent.encodingAESKey,
+            receiveId: selected.agent.corpId,
+            encrypt: echostr,
+          });
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end(plain);
+          return true;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end(`decrypt failed - 解密失败，请检查 EncodingAESKey${ERROR_HELP}`);
+          return true;
+        }
+      }
+
+      if (req.method !== "POST") return false;
+
+      const rawBody = await readTextBody(req, WECOM_LIMITS.MAX_REQUEST_BODY_SIZE);
+      if (!rawBody.ok) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(rawBody.error || "invalid payload");
+        return true;
+      }
+
+      let encrypted = "";
+      try {
+        encrypted = extractEncryptFromXml(rawBody.value);
+      } catch (err) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(`invalid xml - 缺少 Encrypt 字段${ERROR_HELP}`);
+        return true;
+      }
+
+      const signatureMatches = targets.filter((target) =>
+        verifyWecomSignature({
+          token: target.agent.token,
+          timestamp,
+          nonce,
+          encrypt: encrypted,
+          signature,
+        }),
+      );
+      if (signatureMatches.length !== 1) {
+        const reason: RouteFailureReason =
+          signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+        const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+          (target) => target.agent.accountId,
+        );
+        logRouteFailure({
+          reqId,
+          path,
+          method: "POST",
+          reason,
+          candidateAccountIds: candidateIds,
+        });
+        writeRouteFailure(
+          res,
+          reason,
+          reason === "wecom_account_conflict"
+            ? "Agent callback account conflict: multiple accounts matched signature."
+            : "Agent callback account not found: signature verification failed.",
+        );
+        return true;
+      }
+
+      const selected = signatureMatches[0]!;
+      let decrypted = "";
+      let parsed: ReturnType<typeof parseXml> | null = null;
+      try {
+        decrypted = decryptWecomEncrypted({
+          encodingAESKey: selected.agent.encodingAESKey,
+          receiveId: selected.agent.corpId,
+          encrypt: encrypted,
+        });
+        parsed = parseXml(decrypted);
+      } catch {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(`decrypt failed - 解密失败，请检查 EncodingAESKey${ERROR_HELP}`);
+        return true;
+      }
+      if (!parsed) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(`invalid xml - XML 解析失败${ERROR_HELP}`);
+        return true;
+      }
+
+      const inboundAgentId = normalizeAgentIdValue(extractAgentId(parsed));
+      if (
+        inboundAgentId !== undefined &&
+        selected.agent.agentId !== undefined &&
+        inboundAgentId !== selected.agent.agentId
+      ) {
+        selected.runtime.error?.(
+          `[wecom] inbound(agent): reqId=${reqId} accountId=${selected.agent.accountId} agentId_mismatch expected=${selected.agent.agentId} actual=${inboundAgentId}`,
+        );
+      }
+
+      const core = getWecomRuntime();
+      selected.runtime.log?.(
+        `[wecom] inbound(agent): reqId=${reqId} method=${req.method ?? "UNKNOWN"} remote=${remote} timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${hasSig ? "yes" : "no"} accountId=${selected.agent.accountId}`,
       );
       return handleAgentWebhook({
         req,
         res,
-        agent: agentTarget.agent,
-        config: agentTarget.config,
+        verifiedPost: {
+          timestamp,
+          nonce,
+          signature,
+          encrypted,
+          decrypted,
+          parsed,
+        },
+        agent: selected.agent,
+        config: selected.config,
         core,
-        log: agentTarget.runtime.log,
-        error: agentTarget.runtime.error,
+        log: selected.runtime.log,
+        error: selected.runtime.error,
       });
     }
     // 未注册 Agent，返回 404
@@ -1548,7 +2350,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
     return true;
   }
 
-  // Bot 模式路由: /wecom, /wecom/bot
+  // Bot 模式路由: /plugins/wecom/bot（推荐）以及 /wecom、/wecom/bot（兼容）
   const targets = webhookTargets.get(path);
   if (!targets || targets.length === 0) return false;
 
@@ -1559,13 +2361,33 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
 
   if (req.method === "GET") {
     const echostr = query.get("echostr") ?? "";
-    const target = targets.find(c => c.account.token && verifyWecomSignature({ token: c.account.token, timestamp, nonce, encrypt: echostr, signature }));
-    if (!target || !target.account.encodingAESKey) {
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.end(`unauthorized - Bot 签名验证失败，请检查 Token 配置${ERROR_HELP}`);
+    const signatureMatches = targets.filter((target) =>
+      target.account.token &&
+      verifyWecomSignature({ token: target.account.token, timestamp, nonce, encrypt: echostr, signature }),
+    );
+    if (signatureMatches.length !== 1) {
+      const reason: RouteFailureReason =
+        signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+      const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+        (target) => target.account.accountId,
+      );
+      logRouteFailure({
+        reqId,
+        path,
+        method: "GET",
+        reason,
+        candidateAccountIds: candidateIds,
+      });
+      writeRouteFailure(
+        res,
+        reason,
+        reason === "wecom_account_conflict"
+          ? "Bot callback account conflict: multiple accounts matched signature."
+          : "Bot callback account not found: signature verification failed.",
+      );
       return true;
     }
+    const target = signatureMatches[0]!;
     try {
       const plain = decryptWecomEncrypted({ encodingAESKey: target.account.encodingAESKey, receiveId: target.account.receiveId, encrypt: echostr });
       res.statusCode = 200;
@@ -1594,28 +2416,59 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
   console.log(
     `[wecom] inbound(bot): reqId=${reqId} rawJsonBytes=${Buffer.byteLength(JSON.stringify(record), "utf8")} hasEncrypt=${Boolean(encrypt)} encryptLen=${encrypt.length}`,
   );
-  const target = targets.find(c => c.account.token && verifyWecomSignature({ token: c.account.token, timestamp, nonce, encrypt, signature }));
-  if (!target || !target.account.configured || !target.account.encodingAESKey) {
-    res.statusCode = 401;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end(`unauthorized - Bot 签名验证失败${ERROR_HELP}`);
+  const signatureMatches = targets.filter((target) =>
+    target.account.token &&
+    verifyWecomSignature({ token: target.account.token, timestamp, nonce, encrypt, signature }),
+  );
+  if (signatureMatches.length !== 1) {
+    const reason: RouteFailureReason =
+      signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+    const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+      (target) => target.account.accountId,
+    );
+    logRouteFailure({
+      reqId,
+      path,
+      method: "POST",
+      reason,
+      candidateAccountIds: candidateIds,
+    });
+    writeRouteFailure(
+      res,
+      reason,
+      reason === "wecom_account_conflict"
+        ? "Bot callback account conflict: multiple accounts matched signature."
+        : "Bot callback account not found: signature verification failed.",
+    );
     return true;
   }
 
-  // 选定 target 后，把 reqId 带入结构化日志，方便串联排查
-  logInfo(target, `inbound(bot): reqId=${reqId} selectedAccount=${target.account.accountId} path=${path}`);
-
-  let plain: string;
+  const target = signatureMatches[0]!;
+  let msg: WecomInboundMessage;
   try {
-    plain = decryptWecomEncrypted({ encodingAESKey: target.account.encodingAESKey, receiveId: target.account.receiveId, encrypt });
-  } catch (err) {
+    const plain = decryptWecomEncrypted({
+      encodingAESKey: target.account.encodingAESKey,
+      receiveId: target.account.receiveId,
+      encrypt,
+    });
+    msg = parseWecomPlainMessage(plain);
+  } catch {
     res.statusCode = 400;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end(`decrypt failed - 解密失败${ERROR_HELP}`);
+    res.end(`decrypt failed - 解密失败，请检查 EncodingAESKey${ERROR_HELP}`);
     return true;
   }
+  const expected = resolveBotIdentitySet(target);
+  if (expected.size > 0) {
+    const inboundAibotId = String((msg as any).aibotid ?? "").trim();
+    if (!inboundAibotId || !expected.has(inboundAibotId)) {
+      target.runtime.error?.(
+        `[wecom] inbound(bot): reqId=${reqId} accountId=${target.account.accountId} aibotid_mismatch expected=${Array.from(expected).join(",")} actual=${inboundAibotId || "N/A"}`,
+      );
+    }
+  }
 
-  const msg = parseWecomPlainMessage(plain);
+  logInfo(target, `inbound(bot): reqId=${reqId} selectedAccount=${target.account.accountId} path=${path}`);
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
   const proxyUrl = resolveWecomEgressProxyUrl(target.config);
 
@@ -1677,8 +2530,18 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
 
   // Handle Message (with Debounce)
   try {
-    const userid = resolveWecomSenderUserId(msg) || "unknown";
-    const chatId = msg.chattype === "group" ? (msg.chatid?.trim() || "unknown") : userid;
+    const decision = shouldProcessBotInboundMessage(msg);
+    if (!decision.shouldProcess) {
+      logInfo(
+        target,
+        `inbound: skipped msgtype=${msgtype} reason=${decision.reason} chattype=${String(msg.chattype ?? "")} chatid=${String(msg.chatid ?? "")} from=${resolveWecomSenderUserId(msg) || "N/A"}`,
+      );
+      jsonOk(res, buildEncryptedJsonReply({ account: target.account, plaintextJson: {}, nonce, timestamp }));
+      return true;
+    }
+
+    const userid = decision.senderUserId!;
+    const chatId = decision.chatId ?? userid;
     const conversationKey = `wecom:${target.account.accountId}:${userid}:${chatId}`;
     const msgContent = buildInboundBody(msg);
 

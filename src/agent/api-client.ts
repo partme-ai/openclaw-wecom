@@ -25,6 +25,48 @@ type TokenCache = {
 
 const tokenCaches = new Map<string, TokenCache>();
 
+function normalizeUploadFilename(filename: string): string {
+    const trimmed = filename.trim();
+    if (!trimmed) return "file.bin";
+    const ext = trimmed.includes(".") ? `.${trimmed.split(".").pop()!.toLowerCase()}` : "";
+    const base = ext ? trimmed.slice(0, -ext.length) : trimmed;
+    const sanitizedBase = base
+        .replace(/[^\x20-\x7e]/g, "_")
+        .replace(/["\\\/;=]/g, "_")
+        .replace(/\s+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    const safeBase = sanitizedBase || "file";
+    const safeExt = ext.replace(/[^a-z0-9.]/g, "");
+    return `${safeBase}${safeExt || ".bin"}`;
+}
+
+function guessUploadContentType(filename: string): string {
+    const ext = filename.split(".").pop()?.toLowerCase() || "";
+    const contentTypeMap: Record<string, string> = {
+        // image
+        jpg: "image/jpg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+        // audio / video
+        amr: "voice/amr", mp3: "audio/mpeg", wav: "audio/wav", m4a: "audio/mp4", ogg: "audio/ogg", mp4: "video/mp4", mov: "video/quicktime",
+        // documents
+        txt: "text/plain", md: "text/markdown", csv: "text/csv", tsv: "text/tab-separated-values", json: "application/json",
+        xml: "application/xml", yaml: "application/yaml", yml: "application/yaml",
+        pdf: "application/pdf", doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        rtf: "application/rtf", odt: "application/vnd.oasis.opendocument.text",
+        // archives
+        zip: "application/zip", rar: "application/vnd.rar", "7z": "application/x-7z-compressed",
+        gz: "application/gzip", tgz: "application/gzip", tar: "application/x-tar",
+    };
+    return contentTypeMap[ext] || "application/octet-stream";
+}
+
+function requireAgentId(agent: ResolvedAgentAccount): number {
+    if (typeof agent.agentId === "number" && Number.isFinite(agent.agentId)) return agent.agentId;
+    throw new Error(`wecom agent account=${agent.accountId} missing agentId; sending via cgi-bin/message/send requires agentId`);
+}
+
 /**
  * **getAccessToken (获取 AccessToken)**
  * 
@@ -35,7 +77,7 @@ const tokenCaches = new Map<string, TokenCache>();
  * @returns 有效的 AccessToken
  */
 export async function getAccessToken(agent: ResolvedAgentAccount): Promise<string> {
-    const cacheKey = `${agent.corpId}:${agent.agentId}`;
+    const cacheKey = `${agent.corpId}:${String(agent.agentId ?? "na")}`;
     let cache = tokenCaches.get(cacheKey);
 
     if (!cache) {
@@ -109,7 +151,7 @@ export async function sendText(params: {
             toparty: toParty,
             totag: toTag,
             msgtype: "text",
-            agentid: agent.agentId,
+            agentid: requireAgentId(agent),
             text: { content: text }
         };
 
@@ -158,48 +200,53 @@ export async function uploadMedia(params: {
     filename: string;
 }): Promise<string> {
     const { agent, type, buffer, filename } = params;
+    const safeFilename = normalizeUploadFilename(filename);
     const token = await getAccessToken(agent);
+    const proxyUrl = resolveWecomEgressProxyUrlFromNetwork(agent.network);
     // 添加 debug=1 参数获取更多错误信息
     const url = `${API_ENDPOINTS.UPLOAD_MEDIA}?access_token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&debug=1`;
 
     // DEBUG: 输出上传信息
-    console.log(`[wecom-upload] Uploading media: type=${type}, filename=${filename}, size=${buffer.length} bytes`);
+    console.log(`[wecom-upload] Uploading media: type=${type}, filename=${safeFilename}, size=${buffer.length} bytes`);
 
-    // 手动构造 multipart/form-data 请求体
-    // 企业微信要求包含 filename 和 filelength
-    const boundary = `----WebKitFormBoundary${crypto.randomBytes(16).toString("hex")}`;
+    const uploadOnce = async (fileContentType: string) => {
+        // 手动构造 multipart/form-data 请求体
+        // 企业微信要求包含 filename 和 filelength
+        const boundary = `----WebKitFormBoundary${crypto.randomBytes(16).toString("hex")}`;
 
-    // 根据文件类型设置 Content-Type
-    const contentTypeMap: Record<string, string> = {
-        jpg: "image/jpg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
-        bmp: "image/bmp", amr: "voice/amr", mp4: "video/mp4",
+        const header = Buffer.from(
+            `--${boundary}\r\n` +
+            `Content-Disposition: form-data; name="media"; filename="${safeFilename}"; filelength=${buffer.length}\r\n` +
+            `Content-Type: ${fileContentType}\r\n\r\n`
+        );
+        const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+        const body = Buffer.concat([header, buffer, footer]);
+
+        console.log(`[wecom-upload] Multipart body size=${body.length}, boundary=${boundary}, fileContentType=${fileContentType}`);
+
+        const res = await wecomFetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": `multipart/form-data; boundary=${boundary}`,
+                "Content-Length": String(body.length),
+            },
+            body: body,
+        }, { proxyUrl, timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
+        const json = await res.json() as { media_id?: string; errcode?: number; errmsg?: string };
+        console.log(`[wecom-upload] Response:`, JSON.stringify(json));
+        return json;
     };
-    const ext = filename.split(".").pop()?.toLowerCase() || "";
-    const fileContentType = contentTypeMap[ext] || "application/octet-stream";
 
-    // 构造 multipart body
-    const header = Buffer.from(
-        `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="media"; filename="${filename}"; filelength=${buffer.length}\r\n` +
-        `Content-Type: ${fileContentType}\r\n\r\n`
-    );
-    const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
-    const body = Buffer.concat([header, buffer, footer]);
+    const preferredContentType = guessUploadContentType(safeFilename);
+    let json = await uploadOnce(preferredContentType);
 
-    console.log(`[wecom-upload] Multipart body size=${body.length}, boundary=${boundary}, fileContentType=${fileContentType}`);
-
-    const res = await wecomFetch(url, {
-        method: "POST",
-        headers: {
-            "Content-Type": `multipart/form-data; boundary=${boundary}`,
-            "Content-Length": String(body.length),
-        },
-        body: body,
-    }, { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
-    const json = await res.json() as { media_id?: string; errcode?: number; errmsg?: string };
-
-    // DEBUG: 输出完整响应
-    console.log(`[wecom-upload] Response:`, JSON.stringify(json));
+    // 某些文件类型在严格网关/企业微信校验下可能失败，回退到通用类型再试一次。
+    if (!json?.media_id && preferredContentType !== "application/octet-stream") {
+        console.warn(
+            `[wecom-upload] Upload failed with ${preferredContentType}, retrying as application/octet-stream: ${json?.errcode} ${json?.errmsg}`,
+        );
+        json = await uploadOnce("application/octet-stream");
+    }
 
     if (!json?.media_id) {
         throw new Error(`upload failed: ${json?.errcode} ${json?.errmsg}`);
@@ -252,7 +299,7 @@ export async function sendMedia(params: {
             toparty: toParty,
             totag: toTag,
             msgtype: mediaType,
-            agentid: agent.agentId,
+            agentid: requireAgentId(agent),
             [mediaType]: mediaPayload
         };
 

@@ -28,7 +28,7 @@ function createMockRequest(bodyObj: any): IncomingMessage {
     const socket = new Socket();
     const req = new IncomingMessage(socket);
     req.method = "POST";
-    req.url = "/wecom?timestamp=123&nonce=456&signature=789";
+    req.url = "/plugins/wecom/bot/default?timestamp=123&nonce=456&signature=789";
     req.push(JSON.stringify(bodyObj));
     req.push(null);
     return req;
@@ -45,6 +45,7 @@ function createMockResponse(): ServerResponse {
 
 describe("Monitor Active Features", () => {
     let capturedDeliver: ((payload: { text: string }) => Promise<void>) | undefined;
+    let unregisterTarget: (() => void) | undefined;
     let mockCore: any;
     let msgSeq = 0;
     let senderUserId = "";
@@ -109,7 +110,7 @@ describe("Monitor Active Features", () => {
                         return;
                     }
                 },
-                routing: { resolveAgentRoute: () => ({ agentId: "1", sessionKey: "1", accountId: "1" }) },
+                routing: { resolveAgentRoute: () => ({ agentId: "1", sessionKey: "1", accountId: "default" }) },
                 session: {
                     resolveStorePath: () => "",
                     readSessionUpdatedAt: () => 0,
@@ -121,8 +122,8 @@ describe("Monitor Active Features", () => {
 
         vi.spyOn(runtime, "getWecomRuntime").mockReturnValue(mockCore);
 
-        registerWecomWebhookTarget({
-            account: { accountId: "1", enabled: true, configured: true, token: "T", encodingAESKey: validKey, receiveId: "R", config: {} as any },
+        unregisterTarget = registerWecomWebhookTarget({
+            account: { accountId: "default", enabled: true, configured: true, token: "T", encodingAESKey: validKey, receiveId: "R", config: {} as any },
             config: {
                 channels: {
                     wecom: {
@@ -139,11 +140,13 @@ describe("Monitor Active Features", () => {
             } as any,
             runtime: { log: () => { } },
             core: mockCore,
-            path: "/wecom"
+            path: "/plugins/wecom/bot/default"
         });
     });
 
     afterEach(() => {
+        unregisterTarget?.();
+        unregisterTarget = undefined;
         vi.useRealTimers();
     });
 
@@ -187,14 +190,17 @@ describe("Monitor Active Features", () => {
         undiciFetch.mockResolvedValue(new Response("ok", { status: 200 }));
         await sendActiveMessage(streamId, "Active Hello");
 
-        expect(undiciFetch).toHaveBeenCalledWith(
-            "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-key",
+        expect(undiciFetch).toHaveBeenCalled();
+        const [url, init] = undiciFetch.mock.calls.at(-1)! as [string, RequestInit];
+        expect(url).toBe("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=test-key");
+        expect(init).toEqual(
             expect.objectContaining({
                 method: "POST",
-                headers: expect.objectContaining({ "Content-Type": "application/json" }),
                 body: JSON.stringify({ msgtype: "text", text: { content: "Active Hello" } }),
             }),
         );
+        const headers = new Headers(init.headers);
+        expect(headers.get("content-type")).toBe("application/json");
     });
 
     it("should fallback non-image media to agent DM (and push a Chinese prompt)", async () => {
@@ -234,6 +240,6 @@ describe("Monitor Active Features", () => {
         expect(undiciFetch).toHaveBeenCalled();
     });
 
-    // 注：本机路径（/Users/... 或 /tmp/...）短路发图逻辑属于运行态特性，
+    // 注：本机路径（/Users/...、/tmp/...、/root/...、/home/...）短路发图逻辑属于运行态特性，
     // 单测在 fake timers + module singleton 状态下容易引入脆弱性；这里优先覆盖更关键的兜底链路与去重逻辑。
 });
