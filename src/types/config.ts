@@ -45,12 +45,12 @@ export type WecomRoutingConfig = {
  * 用于接收 JSON 格式回调 + 流式回复
  */
 export type WecomBotConfig = {
-    /** 智能机器人 ID（用于 Matrix 模式二次身份确认） */
+    /** 智能机器人 ID（用于 Matrix 模式二次身份确认，webhook 模式） */
     aibotid?: string;
-    /** 回调 Token (企微后台生成) */
-    token: string;
-    /** 回调加密密钥 (企微后台生成) */
-    encodingAESKey: string;
+    /** 回调 Token (企微后台生成，webhook 模式必填) */
+    token?: string;
+    /** 回调加密密钥 (企微后台生成，webhook 模式必填) */
+    encodingAESKey?: string;
     /**
      * BotId 列表（可选，用于审计与告警）。
      * - 回调路由优先由 URL + 签名决定；botIds 不参与强制拦截。
@@ -65,6 +65,15 @@ export type WecomBotConfig = {
     welcomeText?: string;
     /** DM 策略 */
     dm?: WecomDmConfig;
+
+    // --- 长链接模式 (WebSocket) ---
+
+    /** 连接模式：webhook（默认）或 websocket */
+    connectionMode?: 'webhook' | 'websocket';
+    /** 机器人 BotID（websocket 模式必填，企微后台获取） */
+    botId?: string;
+    /** 机器人 Secret（websocket 模式必填，企微后台获取） */
+    secret?: string;
 };
 
 /**

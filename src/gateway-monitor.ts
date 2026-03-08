@@ -11,6 +11,7 @@ import {
   resolveWecomAccountConflict,
 } from "./config/index.js";
 import { registerAgentWebhookTarget, registerWecomWebhookTarget } from "./monitor.js";
+import { startWsClient } from "./ws-adapter.js";
 import type { ResolvedWecomAccount, WecomConfig } from "./types/index.js";
 import { WEBHOOK_PATHS } from "./types/constants.js";
 
@@ -164,26 +165,47 @@ export async function monitorWecomProvider(
   const agentPaths: string[] = [];
   try {
     if (bot && botConfigured) {
-      const paths = resolveBotRegistrationPaths({
-        accountId: account.accountId,
-        matrixMode,
-      });
-      for (const path of paths) {
+      const connectionMode = bot.connectionMode ?? 'webhook';
+
+      if (connectionMode === 'websocket') {
+        // 长链接模式：启动 WSClient
         unregisters.push(
-          registerWecomWebhookTarget({
+          startWsClient({
+            accountId: account.accountId,
+            botId: bot.botId!,
+            secret: bot.secret!,
             account: bot,
             config: cfg,
             runtime: ctx.runtime,
-            // The HTTP handler resolves the active PluginRuntime via getWecomRuntime().
-            // The stored target only needs to be decrypt/verify-capable.
             core: {} as PluginRuntime,
-            path,
             statusSink: (patch) => ctx.setStatus({ accountId: ctx.accountId, ...patch }),
+            welcomeText: bot.config.welcomeText,
+            network: bot.network,
           }),
         );
+        botPaths.push(`ws://${account.accountId}`);
+        ctx.log?.info(`[${account.accountId}] wecom bot websocket client started (botId=${bot.botId})`);
+      } else {
+        // Webhook 模式：注册 HTTP 路径（现有逻辑不变）
+        const paths = resolveBotRegistrationPaths({
+          accountId: account.accountId,
+          matrixMode,
+        });
+        for (const path of paths) {
+          unregisters.push(
+            registerWecomWebhookTarget({
+              account: bot,
+              config: cfg,
+              runtime: ctx.runtime,
+              core: {} as PluginRuntime,
+              path,
+              statusSink: (patch) => ctx.setStatus({ accountId: ctx.accountId, ...patch }),
+            }),
+          );
+        }
+        botPaths.push(...paths);
+        ctx.log?.info(`[${account.accountId}] wecom bot webhook registered at ${paths.join(", ")}`);
       }
-      botPaths.push(...paths);
-      ctx.log?.info(`[${account.accountId}] wecom bot webhook registered at ${paths.join(", ")}`);
     }
 
     if (agent && agentConfigured) {

@@ -81,13 +81,17 @@ const routingSchema = z.object({
  */
 const botSchema = z.object({
     aibotid: z.string().optional(),
-    token: z.string(),
-    encodingAESKey: z.string(),
+    token: z.string().optional(),
+    encodingAESKey: z.string().optional(),
     botIds: z.array(z.string()).optional(),
     receiveId: z.string().optional(),
     streamPlaceholderContent: z.string().optional(),
     welcomeText: z.string().optional(),
     dm: dmSchema,
+    // 长链接模式 (WebSocket)
+    connectionMode: z.enum(['webhook', 'websocket']).optional(),
+    botId: z.string().optional(),
+    secret: z.string().optional(),
 }).optional();
 
 /**

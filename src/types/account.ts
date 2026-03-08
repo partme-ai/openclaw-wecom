@@ -20,9 +20,9 @@ export type ResolvedBotAccount = {
     enabled: boolean;
     /** 是否配置完整 */
     configured: boolean;
-    /** 回调 Token */
+    /** 回调 Token (webhook 模式) */
     token: string;
-    /** 回调加密密钥 */
+    /** 回调加密密钥 (webhook 模式) */
     encodingAESKey: string;
     /** 接收者 ID */
     receiveId: string;
@@ -30,6 +30,15 @@ export type ResolvedBotAccount = {
     config: WecomBotConfig;
     /** 网络配置（来自 channels.wecom.network） */
     network?: WecomNetworkConfig;
+
+    // --- 长链接模式 (WebSocket) ---
+
+    /** 连接模式 */
+    connectionMode: 'webhook' | 'websocket';
+    /** 机器人 BotID（websocket 模式下有值） */
+    botId?: string;
+    /** 机器人 Secret（websocket 模式下有值） */
+    secret?: string;
 };
 
 /**

@@ -3,6 +3,7 @@ import type { ChannelOutboundAdapter, ChannelOutboundContext } from "openclaw/pl
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
 import { resolveWecomAccount, resolveWecomAccountConflict, resolveWecomAccounts } from "./config/index.js";
 import { getWecomRuntime } from "./runtime.js";
+import { getWsClient } from "./ws-adapter.js";
 
 import { resolveWecomTarget } from "./target.js";
 
@@ -61,6 +62,30 @@ export const wecomOutbound: ChannelOutboundAdapter = {
   sendText: async ({ cfg, to, text, accountId }: ChannelOutboundContext) => {
     // signal removed - not supported in current SDK
 
+    // ── Bot WebSocket outbound 优先路径 ──
+    const botAccount = resolveWecomAccount({ cfg, accountId }).bot;
+    if (botAccount?.connectionMode === 'websocket' && botAccount.configured) {
+      const wsClient = getWsClient(botAccount.accountId);
+      if (wsClient?.isConnected) {
+        const wsTarget = resolveWecomTarget(to);
+        const chatid = wsTarget?.touser || wsTarget?.chatid;
+        if (chatid) {
+          try {
+            await wsClient.sendMessage(chatid, {
+              msgtype: 'markdown',
+              markdown: { content: text },
+            });
+            console.log(`[wecom-outbound] Sent text via Bot WS to chatid=${chatid} (len=${text.length})`);
+            return { channel: "wecom", messageId: `ws-bot-${Date.now()}`, timestamp: Date.now() };
+          } catch (err) {
+            console.error(`[wecom-outbound] Bot WS sendMessage failed, falling back to Agent: ${String(err)}`);
+            // fallthrough to Agent outbound
+          }
+        }
+      }
+    }
+
+    // ── Agent outbound（现有逻辑不变）──
     const agent = resolveAgentConfigOrThrow({ cfg, accountId });
     const target = resolveWecomTarget(to);
     if (!target) {

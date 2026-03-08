@@ -931,7 +931,7 @@ function parseWecomPlainMessage(raw: string): WecomInboundMessage {
   return parsed as WecomInboundMessage;
 }
 
-type InboundResult = {
+export type InboundResult = {
   body: string;
   media?: {
     buffer: Buffer;
@@ -952,7 +952,7 @@ type InboundResult = {
  * @param target Webhook 目标配置
  * @param msg 企业微信原始消息对象
  */
-async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInboundMessage): Promise<InboundResult> {
+export async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInboundMessage): Promise<InboundResult> {
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
   const aesKey = target.account.encodingAESKey;
   const maxBytes = resolveWecomMediaMaxBytes(target.config);
@@ -2049,7 +2049,7 @@ function formatQuote(quote: WecomInboundQuote): string {
   return "";
 }
 
-function buildInboundBody(msg: WecomInboundMessage): string {
+export function buildInboundBody(msg: WecomInboundMessage): string {
   let body = "";
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
 

@@ -46,15 +46,22 @@ export function detectMode(config: WecomConfig | undefined): ResolvedMode {
  * 解析 Bot 模式账号
  */
 function resolveBotAccount(accountId: string, config: WecomBotConfig, network?: WecomNetworkConfig): ResolvedBotAccount {
+    const connectionMode = config.connectionMode ?? 'webhook';
+    const configured = connectionMode === 'websocket'
+        ? Boolean(config.botId && config.secret)
+        : Boolean(config.token && config.encodingAESKey);
     return {
         accountId,
         enabled: true,
-        configured: Boolean(config.token && config.encodingAESKey),
-        token: config.token,
-        encodingAESKey: config.encodingAESKey,
+        configured,
+        token: config.token ?? "",
+        encodingAESKey: config.encodingAESKey ?? "",
         receiveId: config.receiveId?.trim() ?? "",
         config,
         network,
+        connectionMode,
+        botId: config.botId,
+        secret: config.secret,
     };
 }
 

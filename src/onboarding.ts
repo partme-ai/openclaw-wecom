@@ -85,7 +85,7 @@ function accountWebhookPath(kind: "bot" | "agent", accountId: string): string {
     return `${recommendedBase}/${accountId}`;
 }
 
-function setWecomBotConfig(cfg: OpenClawConfig, bot: WecomBotConfig, accountId: string): OpenClawConfig {
+export function setWecomBotConfig(cfg: OpenClawConfig, bot: WecomBotConfig, accountId: string): OpenClawConfig {
     const wecom = getWecomConfig(cfg) ?? {};
     if (!shouldUseAccountScopedConfig(wecom, accountId)) {
         return {
@@ -190,7 +190,7 @@ function setWecomDmPolicy(
                     agent: {
                         ...existingAccount.agent,
                         dm,
-                    },
+                    } as WecomAgentConfig,
                 };
         return {
             ...cfg,
@@ -316,17 +316,46 @@ async function configureBotMode(
     prompter: WizardPrompter,
     accountId: string,
 ): Promise<OpenClawConfig> {
+    // 选择接入方式
+    const connectionMode = (await prompter.select({
+        message: "请选择 Bot 接入方式:",
+        options: [
+            {
+                value: "webhook",
+                label: "Webhook 回调模式",
+                hint: "需要公网 IP + 回调 URL，适合有公网服务器的环境",
+            },
+            {
+                value: "websocket",
+                label: "WebSocket 长链接模式",
+                hint: "无需公网 IP，SDK 主动连接企微服务器，适合内网环境",
+            },
+        ],
+        initialValue: "webhook",
+    })) as "webhook" | "websocket";
+
+    if (connectionMode === "websocket") {
+        return configureBotWebsocket(cfg, prompter, accountId);
+    }
+    return configureBotWebhook(cfg, prompter, accountId);
+}
+
+async function configureBotWebhook(
+    cfg: OpenClawConfig,
+    prompter: WizardPrompter,
+    accountId: string,
+): Promise<OpenClawConfig> {
     const recommendedPath = accountWebhookPath("bot", accountId);
     await prompter.note(
         [
-            "正在配置 Bot 模式...",
+            "正在配置 Bot 模式（Webhook 回调）...",
             "",
             "💡 操作指南: 请在企微后台【管理工具 -> 智能机器人】开启 API 模式。",
             `🔗 回调 URL (推荐): https://您的域名${recommendedPath}`,
             "",
             "请先在后台填入回调 URL，然后获取以下信息。",
         ].join("\n"),
-        "Bot 模式配置",
+        "Bot 模式配置 — Webhook",
     );
 
     const token = String(
@@ -361,8 +390,62 @@ async function configureBotMode(
     });
 
     const botConfig: WecomBotConfig = {
+        connectionMode: "webhook",
         token,
         encodingAESKey,
+        streamPlaceholderContent: streamPlaceholder?.trim() || undefined,
+        welcomeText: welcomeText?.trim() || undefined,
+    };
+
+    return setWecomBotConfig(cfg, botConfig, accountId);
+}
+
+async function configureBotWebsocket(
+    cfg: OpenClawConfig,
+    prompter: WizardPrompter,
+    accountId: string,
+): Promise<OpenClawConfig> {
+    await prompter.note(
+        [
+            "正在配置 Bot 模式（WebSocket 长链接）...",
+            "",
+            "💡 操作指南: 请在企微后台【管理工具 -> 智能机器人】获取 BotID 和 Secret。",
+            "",
+            "长链接模式无需公网 IP 和回调 URL，适合内网环境。",
+        ].join("\n"),
+        "Bot 模式配置 — WebSocket",
+    );
+
+    const botId = String(
+        await prompter.text({
+            message: "请输入 BotID (机器人ID):",
+            validate: (value: string | undefined) => (value?.trim() ? undefined : "BotID 不能为空"),
+        }),
+    ).trim();
+
+    const secret = String(
+        await prompter.text({
+            message: "请输入 Secret (机器人密钥):",
+            validate: (value: string | undefined) => (value?.trim() ? undefined : "Secret 不能为空"),
+        }),
+    ).trim();
+
+    const streamPlaceholder = await prompter.text({
+        message: "流式占位符 (可选):",
+        placeholder: "正在思考...",
+        initialValue: "正在思考...",
+    });
+
+    const welcomeText = await prompter.text({
+        message: "欢迎语 (可选):",
+        placeholder: "你好！我是 AI 助手",
+        initialValue: "你好！我是 AI 助手",
+    });
+
+    const botConfig: WecomBotConfig = {
+        connectionMode: "websocket",
+        botId,
+        secret,
         streamPlaceholderContent: streamPlaceholder?.trim() || undefined,
         welcomeText: welcomeText?.trim() || undefined,
     };
@@ -516,8 +599,13 @@ async function showSummary(cfg: OpenClawConfig, prompter: WizardPrompter, accoun
     const lines: string[] = ["✅ 配置已保存！", ""];
 
     if (account.bot?.configured) {
-        lines.push("📱 Bot 模式: 已配置");
-        lines.push(`   回调 URL: https://您的域名${accountWebhookPath("bot", accountId)}`);
+        if (account.bot.connectionMode === "websocket") {
+            lines.push("📱 Bot 模式: 已配置 (WebSocket 长链接)");
+            lines.push("   无需配置回调 URL，SDK 将主动连接企微服务器");
+        } else {
+            lines.push("📱 Bot 模式: 已配置 (Webhook 回调)");
+            lines.push(`   回调 URL: https://您的域名${accountWebhookPath("bot", accountId)}`);
+        }
     }
 
     if (account.agent?.configured) {
@@ -527,9 +615,17 @@ async function showSummary(cfg: OpenClawConfig, prompter: WizardPrompter, accoun
 
     lines.push(`   账号 ID: ${accountId}`);
 
+    const hasWebhook =
+        (account.bot?.configured && account.bot.connectionMode !== "websocket") ||
+        account.agent?.configured;
+
     lines.push("");
-    lines.push("⚠️ 请确保您已在企微后台填写了正确的回调 URL，");
-    lines.push("   并点击了后台的『保存』按钮完成验证。");
+    if (hasWebhook) {
+        lines.push("⚠️ 请确保您已在企微后台填写了正确的回调 URL，");
+        lines.push("   并点击了后台的『保存』按钮完成验证。");
+    } else {
+        lines.push("💡 WebSocket 模式将在服务启动时自动连接企微服务器。");
+    }
 
     await prompter.note(lines.join("\n"), "配置完成");
 }

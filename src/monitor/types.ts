@@ -84,6 +84,8 @@ export type StreamState = {
     dmContent?: string;
     /** 已通过 Agent 私信发送过的媒体标识（防重复发送附件） */
     agentMediaKeys?: string[];
+    /** 是否来自 WebSocket 长链接模式（用于跳过 6 分钟超时等 webhook 特有逻辑） */
+    wsMode?: boolean;
 };
 
 /**
@@ -114,6 +116,8 @@ export type PendingInbound = {
     /** 已到达防抖截止时间，但因前序批次仍在处理中而暂存 */
     readyToFlush?: boolean;
     createdAt: number;
+    /** 是否来自 WebSocket 长链接模式 */
+    wsMode?: boolean;
 };
 
 /**
