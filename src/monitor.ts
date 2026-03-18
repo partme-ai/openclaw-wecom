@@ -954,13 +954,14 @@ export type InboundResult = {
  */
 export async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInboundMessage): Promise<InboundResult> {
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
-  const aesKey = target.account.encodingAESKey;
+  const globalAesKey = target.account.encodingAESKey;
   const maxBytes = resolveWecomMediaMaxBytes(target.config);
   const proxyUrl = resolveWecomEgressProxyUrl(target.config);
 
   // 图片消息处理：如果存在 url 且配置了 aesKey，则尝试解密下载
   if (msgtype === "image") {
     const url = String((msg as any).image?.url ?? "").trim();
+    const aesKey = globalAesKey || (msg as any).image?.aeskey || "";
     if (url && aesKey) {
       try {
         const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
@@ -995,6 +996,7 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
 
   if (msgtype === "file") {
     const url = String((msg as any).file?.url ?? "").trim();
+    const aesKey = globalAesKey || (msg as any).file?.aeskey || "";
     if (url && aesKey) {
       try {
         const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
@@ -1038,12 +1040,16 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
         if (t === "text") {
           const content = String(item.text?.content ?? "").trim();
           if (content) bodyParts.push(content);
-        } else if ((t === "image" || t === "file") && !foundMedia && aesKey) {
+        } else if ((t === "image" || t === "file") && !foundMedia) {
           // Found first media, try to download
+          const itemAesKey = globalAesKey || item[t]?.aeskey || "";
           const url = String(item[t]?.url ?? "").trim();
-          if (url) {
+          if (!itemAesKey) {
+            bodyParts.push(`[${t}]`);
+          } else
+            if (url) {
             try {
-              const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+              const decrypted = await decryptWecomMediaWithMeta(url, itemAesKey, { maxBytes, http: { proxyUrl } });
               const inferred = inferInboundMediaMeta({
                 kind: t,
                 buffer: decrypted.buffer,
@@ -1192,6 +1198,9 @@ async function startAgentForStream(params: {
   const config = target.config;
   const account = target.account;
 
+  // WS 长连接模式标记：跳过 Webhook 专属的 Agent 私信兜底逻辑
+  const isWsMode = Boolean(streamStore.getStream(streamId)?.wsMode);
+
   const userid = resolveWecomSenderUserId(msg) || "unknown";
   const chatType = msg.chattype === "group" ? "group" : "direct";
   const chatId = msg.chattype === "group" ? (msg.chatid?.trim() || "unknown") : userid;
@@ -1292,7 +1301,21 @@ async function startAgentForStream(params: {
         return;
       }
 
-      // 图片路径都读取失败时，切换到 Agent 私信兜底，并主动结束 Bot 流。
+      // 图片路径都读取失败时的兜底处理
+      if (isWsMode) {
+        // WS 模式：不走 Agent 私信兜底，直接提示错误并结束
+        const fallbackName = imagePaths.length === 1
+          ? (imagePaths[0]!.split("/").pop() || "image")
+          : `${imagePaths.length} 张图片`;
+        streamStore.updateStream(streamId, (s) => {
+          s.finished = true;
+          s.content = `图片读取失败（${fallbackName}），请重试。`;
+        });
+        streamStore.onStreamFinished(streamId);
+        return;
+      }
+
+      // Webhook 模式：切换到 Agent 私信兜底，并主动结束 Bot 流。
       const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
       const agentOk = Boolean(agentCfg);
       const fallbackName = imagePaths.length === 1
@@ -1349,6 +1372,18 @@ async function startAgentForStream(params: {
 
     // 2) 非图片文件：Bot 会话里提示 + Agent 私信兜底（目标锁定 userId）
     if (otherPaths.length > 0) {
+      if (isWsMode) {
+        // WS 模式：不走 Agent 私信兜底，提示文件路径
+        const filename = otherPaths.length === 1 ? otherPaths[0]!.split("/").pop()! : `${otherPaths.length} 个文件`;
+        streamStore.updateStream(streamId, (s) => {
+          s.finished = true;
+          s.content = `已生成文件（${filename}），文件路径：${otherPaths.join(", ")}`;
+        });
+        streamStore.onStreamFinished(streamId);
+        return;
+      }
+
+      // Webhook 模式：Agent 私信兜底
       const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
       const agentOk = Boolean(agentCfg);
 
@@ -1775,7 +1810,7 @@ async function startAgentForStream(params: {
         const now = Date.now();
         const deadline = current.createdAt + BOT_WINDOW_MS;
         const switchAt = deadline - BOT_SWITCH_MARGIN_MS;
-        const nearTimeout = !current.fallbackMode && !current.finished && now >= switchAt;
+        const nearTimeout = !isWsMode && !current.fallbackMode && !current.finished && now >= switchAt;
         if (nearTimeout) {
           const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
           const agentOk = Boolean(agentCfg);
@@ -1834,7 +1869,14 @@ async function startAgentForStream(params: {
               current.images.push({ base64, md5 });
               logVerbose(target, `media: 识别为图片 contentType=${contentType} filename=${filename}`);
             } else {
-              // Non-image media: Bot 不支持原样发送（尤其群聊），统一切换到 Agent 私信兜底，并在 Bot 会话里提示用户。
+              // Non-image media: Bot 不支持原样发送（尤其群聊）
+              if (isWsMode) {
+                // WS 模式：不走 Agent 私信兜底，跳过非图片媒体
+                logVerbose(target, `media: WS 模式跳过 Agent 私信兜底 filename=${filename} contentType=${contentType ?? "unknown"}`);
+                continue;
+              }
+
+              // Webhook 模式：统一切换到 Agent 私信兜底，并在 Bot 会话里提示用户。
               const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
               const agentOk = Boolean(agentCfg);
               const alreadySent = current.agentMediaKeys.includes(mediaPath);
@@ -1886,40 +1928,42 @@ async function startAgentForStream(params: {
             }
           } catch (err) {
             target.runtime.error?.(`Failed to process outbound media: ${mediaPath}: ${String(err)}`);
-            const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
-            const agentOk = Boolean(agentCfg);
-            const fallbackFilename = filename || mediaPath.split("/").pop() || "attachment";
-            if (agentCfg && current.userId && !current.agentMediaKeys.includes(mediaPath)) {
-              try {
-                await sendAgentDmMedia({
-                  agent: agentCfg,
+            if (!isWsMode) {
+              // Webhook 模式：Agent 私信兜底
+              const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
+              const agentOk = Boolean(agentCfg);
+              const fallbackFilename = filename || mediaPath.split("/").pop() || "attachment";
+              if (agentCfg && current.userId && !current.agentMediaKeys.includes(mediaPath)) {
+                try {
+                  await sendAgentDmMedia({
+                    agent: agentCfg,
+                    userId: current.userId,
+                    mediaUrlOrPath: mediaPath,
+                    contentType,
+                    filename: fallbackFilename,
+                  });
+                  streamStore.updateStream(streamId, (s) => {
+                    s.agentMediaKeys = Array.from(new Set([...(s.agentMediaKeys ?? []), mediaPath]));
+                  });
+                  logVerbose(target, `fallback(error): 媒体处理失败后已通过 Agent 私信发送 user=${current.userId}`);
+                } catch (sendErr) {
+                  target.runtime.error?.(`fallback(error): 媒体处理失败后的 Agent 私信发送也失败: ${String(sendErr)}`);
+                }
+              }
+              if (!current.fallbackMode) {
+                const prompt = buildFallbackPrompt({
+                  kind: "error",
+                  agentConfigured: agentOk,
                   userId: current.userId,
-                  mediaUrlOrPath: mediaPath,
-                  contentType,
                   filename: fallbackFilename,
+                  chatType: current.chatType,
                 });
                 streamStore.updateStream(streamId, (s) => {
-                  s.agentMediaKeys = Array.from(new Set([...(s.agentMediaKeys ?? []), mediaPath]));
+                  s.fallbackMode = "error";
+                  s.finished = true;
+                  s.content = prompt;
+                  s.fallbackPromptSentAt = s.fallbackPromptSentAt ?? Date.now();
                 });
-                logVerbose(target, `fallback(error): 媒体处理失败后已通过 Agent 私信发送 user=${current.userId}`);
-              } catch (sendErr) {
-                target.runtime.error?.(`fallback(error): 媒体处理失败后的 Agent 私信发送也失败: ${String(sendErr)}`);
-              }
-            }
-            if (!current.fallbackMode) {
-              const prompt = buildFallbackPrompt({
-                kind: "error",
-                agentConfigured: agentOk,
-                userId: current.userId,
-                filename: fallbackFilename,
-                chatType: current.chatType,
-              });
-              streamStore.updateStream(streamId, (s) => {
-                s.fallbackMode = "error";
-                s.finished = true;
-                s.content = prompt;
-                s.fallbackPromptSentAt = s.fallbackPromptSentAt ?? Date.now();
-              });
               try {
                 await sendBotFallbackPromptNow({ streamId, text: prompt });
                 logVerbose(target, `fallback(error): 群内提示已推送`);
@@ -1927,6 +1971,9 @@ async function startAgentForStream(params: {
                 target.runtime.error?.(`wecom bot fallback prompt push failed (error) streamId=${streamId}: ${String(pushErr)}`);
               }
             }
+            } // end if (!isWsMode)
+            // WS 模式：媒体处理失败时 continue 尝试下一个媒体，Webhook 模式 return 退出
+            if (isWsMode) continue;
             return;
           }
         }
@@ -1976,7 +2023,7 @@ async function startAgentForStream(params: {
 
   // Timeout fallback final delivery (Agent DM): send once after the agent run completes.
   const finishedState = streamStore.getStream(streamId);
-  if (finishedState?.fallbackMode === "timeout" && !finishedState.finalDeliveredAt) {
+  if (finishedState?.fallbackMode === "timeout" && !finishedState.finalDeliveredAt && !isWsMode) {
     const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
     if (!agentCfg) {
       // Agent not configured - group prompt already explains the situation.

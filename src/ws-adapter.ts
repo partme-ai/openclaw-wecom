@@ -32,6 +32,12 @@ import type { WecomRuntimeEnv, WecomWebhookTarget, StreamState } from "./monitor
 import { shouldProcessBotInboundMessage, buildInboundBody } from "./monitor.js";
 import { monitorState } from "./monitor/state.js";
 import { getWecomRuntime } from "./runtime.js";
+import { fetchAndSaveMcpConfig } from "./mcp-config.js";
+
+// ─── Constants ─────────────────────────────────────────────────────────
+
+/** "思考中" 占位消息，让用户立即看到机器人正在响应 */
+const THINKING_MESSAGE = "<think></think>";
 
 // ─── WSClient Instance Registry ────────────────────────────────────────
 
@@ -42,6 +48,50 @@ const wsClients = new Map<string, WSClient>();
  */
 export function getWsClient(accountId: string): WSClient | undefined {
     return wsClients.get(accountId);
+}
+
+/**
+ * 等待 WSClient 连接就绪，最多等待 timeoutMs 毫秒（默认 30 秒）。
+ * 如果已连接则立即返回；如果 client 尚未创建，会轮询等待创建后再监听连接事件。
+ */
+export async function waitForWsConnection(accountId: string, timeoutMs = 30_000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+
+    // 等待 client 实例出现（gateway 重启时 client 可能还没注册）
+    while (!wsClients.has(accountId)) {
+        if (Date.now() >= deadline) return false;
+        await new Promise((r) => setTimeout(r, 500));
+    }
+
+    const client = wsClients.get(accountId)!;
+    if (client.isConnected) return true;
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return false;
+
+    return new Promise<boolean>((resolve) => {
+        const timer = setTimeout(() => {
+            cleanup();
+            resolve(false);
+        }, remaining);
+
+        const onConnected = () => {
+            cleanup();
+            resolve(true);
+        };
+
+        const cleanup = () => {
+            clearTimeout(timer);
+            client.off("connected", onConnected);
+        };
+
+        client.on("connected", onConnected);
+        // 再检查一次，防止在注册监听器之前已连上
+        if (client.isConnected) {
+            cleanup();
+            resolve(true);
+        }
+    });
 }
 
 // ─── Stream Reply Watcher ──────────────────────────────────────────────
@@ -220,6 +270,16 @@ function setupMessageHandler(params: {
         streamStore.updateStream(streamId, (s: StreamState) => {
             s.wsMode = true;
         });
+
+        // 立即发送"思考中"占位消息，让用户看到即时反馈
+        const sendThinking = (target.account.config as any).sendThinkingMessage ?? true;
+        if (sendThinking) {
+            wsClient.replyStream(frame, streamId, THINKING_MESSAGE, false).catch((err) => {
+                target.runtime.error?.(
+                    `[${accountId}] ws-thinking: failed to send thinking message: ${String(err)}`,
+                );
+            });
+        }
 
         // 注册流式回复监听器
         watchStreamReply({
@@ -404,6 +464,8 @@ export function startWsClient(params: StartWsClientParams): () => void {
     });
     wsClient.on("authenticated", () => {
         runtime.log?.(`[${accountId}] ws: authenticated successfully`);
+        // 认证成功后拉取 MCP 配置（非阻塞，失败仅记日志）
+        void fetchAndSaveMcpConfig(wsClient, accountId, runtime);
     });
     wsClient.on("disconnected", (reason: string) => {
         runtime.log?.(`[${accountId}] ws: disconnected - ${reason}`);

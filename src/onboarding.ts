@@ -38,12 +38,59 @@ function setWecomEnabled(cfg: OpenClawConfig, enabled: boolean): OpenClawConfig 
     } as OpenClawConfig;
 }
 
+/**
+ * 确保 cfg.bindings 中存在一条 wecom 账号到默认 agent 的路由。
+ *
+ * `openclaw channels add` 流程会在插件 configure() 返回后单独提示用户绑定 agent，
+ * 但 `openclaw onboard` 的 quickstart 路径会跳过这一步，导致消息路由缺失。
+ * 在插件层面主动补全 binding 可以让两种流程都能正常工作。
+ *
+ * 如果 bindings 中已存在匹配 channel+accountId 的条目，则不会重复添加。
+ */
+function ensureWecomBinding(cfg: OpenClawConfig, accountId: string): OpenClawConfig {
+    const existing = cfg.bindings ?? [];
+    const alreadyBound = existing.some(
+        (b) => b.match.channel === channel && (b.match.accountId === accountId || (!b.match.accountId && accountId === DEFAULT_ACCOUNT_ID)),
+    );
+    if (alreadyBound) return cfg;
+
+    // 默认路由到 main agent（OpenClaw 约定 defaultAgentId 为 "main"）
+    const defaultAgentId = "main";
+    return {
+        ...cfg,
+        bindings: [
+            ...existing,
+            {
+                agentId: defaultAgentId,
+                match: {
+                    channel,
+                    accountId,
+                },
+            },
+        ],
+    };
+}
+
 function setGatewayBindLan(cfg: OpenClawConfig): OpenClawConfig {
     return {
         ...cfg,
         gateway: {
             ...(cfg.gateway ?? {}),
             bind: "lan",
+        },
+    } as OpenClawConfig;
+}
+
+function setWecomDefaultAccount(cfg: OpenClawConfig, accountId: string): OpenClawConfig {
+    const wecom = getWecomConfig(cfg) ?? {};
+    return {
+        ...cfg,
+        channels: {
+            ...cfg.channels,
+            wecom: {
+                ...wecom,
+                defaultAccount: accountId,
+            },
         },
     } as OpenClawConfig;
 }
@@ -321,17 +368,17 @@ async function configureBotMode(
         message: "请选择 Bot 接入方式:",
         options: [
             {
-                value: "webhook",
-                label: "Webhook 回调模式",
-                hint: "需要公网 IP + 回调 URL，适合有公网服务器的环境",
-            },
-            {
                 value: "websocket",
                 label: "WebSocket 长链接模式",
                 hint: "无需公网 IP，SDK 主动连接企微服务器，适合内网环境",
             },
+            {
+                value: "webhook",
+                label: "Webhook 回调模式",
+                hint: "需要公网 IP + 回调 URL，适合有公网服务器的环境",
+            },
         ],
-        initialValue: "webhook",
+        initialValue: "websocket",
     })) as "webhook" | "websocket";
 
     if (connectionMode === "websocket") {
@@ -730,13 +777,19 @@ export const wecomOnboardingAdapter: ChannelOnboardingAdapter = {
         // 6. DM 策略
         next = await promptDmPolicy(next, prompter, configuredModes, accountId);
 
-        // 7. 启用通道
+        // 7. 设置 defaultAccount
+        next = setWecomDefaultAccount(next, accountId);
+
+        // 8. 启用通道
         next = setWecomEnabled(next, true);
 
-        // 8. 设置 gateway.bind 为 lan（允许外部访问回调）
+        // 9. 设置 gateway.bind 为 lan（允许外部访问回调）
         next = setGatewayBindLan(next);
 
-        // 9. 汇总
+        // 10. 确保 bindings 中有默认路由（onboard quickstart 不会提示绑定）
+        next = ensureWecomBinding(next, accountId);
+
+        // 11. 汇总
         await showSummary(next, prompter, accountId);
 
         return { cfg: next, accountId };

@@ -3,7 +3,7 @@ import type { ChannelOutboundAdapter, ChannelOutboundContext } from "openclaw/pl
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
 import { resolveWecomAccount, resolveWecomAccountConflict, resolveWecomAccounts } from "./config/index.js";
 import { getWecomRuntime } from "./runtime.js";
-import { getWsClient } from "./ws-adapter.js";
+import { getWsClient, waitForWsConnection } from "./ws-adapter.js";
 
 import { resolveWecomTarget } from "./target.js";
 
@@ -62,30 +62,43 @@ export const wecomOutbound: ChannelOutboundAdapter = {
   sendText: async ({ cfg, to, text, accountId }: ChannelOutboundContext) => {
     // signal removed - not supported in current SDK
 
-    // ── Bot WebSocket outbound 优先路径 ──
-    const botAccount = resolveWecomAccount({ cfg, accountId }).bot;
+    // ── Bot WebSocket outbound 独立路径 ──
+    // WS Bot 完全独立收发，不与 Agent 组成双模，失败时直接抛错而非 fallthrough
+    const resolvedAccount = resolveWecomAccount({ cfg, accountId });
+    const botAccount = resolvedAccount.bot;
     if (botAccount?.connectionMode === 'websocket' && botAccount.configured) {
       const wsClient = getWsClient(botAccount.accountId);
-      if (wsClient?.isConnected) {
-        const wsTarget = resolveWecomTarget(to);
-        const chatid = wsTarget?.touser || wsTarget?.chatid;
-        if (chatid) {
-          try {
-            await wsClient.sendMessage(chatid, {
-              msgtype: 'markdown',
-              markdown: { content: text },
-            });
-            console.log(`[wecom-outbound] Sent text via Bot WS to chatid=${chatid} (len=${text.length})`);
-            return { channel: "wecom", messageId: `ws-bot-${Date.now()}`, timestamp: Date.now() };
-          } catch (err) {
-            console.error(`[wecom-outbound] Bot WS sendMessage failed, falling back to Agent: ${String(err)}`);
-            // fallthrough to Agent outbound
+      const wsTarget = resolveWecomTarget(to);
+      const chatid = wsTarget?.touser || wsTarget?.chatid;
+
+      // 如果目标是 Agent 会话（wecom-agent:），跳过 WS Bot，走 Agent outbound
+      const rawTo = typeof to === "string" ? to.trim().toLowerCase() : "";
+      if (!rawTo.startsWith("wecom-agent:")) {
+        if (!wsClient?.isConnected) {
+          console.log(`[wecom-outbound] Bot WS 未连接，等待重连... (accountId=${botAccount.accountId})`);
+          const reconnected = await waitForWsConnection(botAccount.accountId, 10_000);
+          if (!reconnected) {
+            throw new Error(`[wecom-outbound] Bot WS 等待重连超时，无法发送消息 (accountId=${botAccount.accountId})`);
           }
         }
+        if (!chatid) {
+          throw new Error(`[wecom-outbound] Bot WS 无法解析目标 chatid (to=${String(to)})`);
+        }
+        // 重连后重新获取 client（可能是新实例）
+        const activeClient = getWsClient(botAccount.accountId);
+        if (!activeClient?.isConnected) {
+          throw new Error(`[wecom-outbound] Bot WS 重连后仍不可用 (accountId=${botAccount.accountId})`);
+        }
+        await activeClient.sendMessage(chatid, {
+          msgtype: 'markdown',
+          markdown: { content: text },
+        });
+        console.log(`[wecom-outbound] Sent text via Bot WS to chatid=${chatid} (len=${text.length})`);
+        return { channel: "wecom", messageId: `ws-bot-${Date.now()}`, timestamp: Date.now() };
       }
     }
 
-    // ── Agent outbound（现有逻辑不变）──
+    // ── Agent outbound（Webhook Bot 双模 / Agent 独立）──
     const agent = resolveAgentConfigOrThrow({ cfg, accountId });
     const target = resolveWecomTarget(to);
     if (!target) {

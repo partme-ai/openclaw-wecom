@@ -1,6 +1,6 @@
 {
   "name": "@mocrane/wecom",
-  "version": "2026.3.4",
+  "version": "2026.3.14",
   "type": "module",
   "description": "OpenClaw WeCom (WeChat Work) intelligent bot channel plugin",
   "main": "index.ts",
@@ -9,6 +9,7 @@
     "src/",
     "assets/",
     "changelog/",
+    "skills/",
     "openclaw.plugin.json",
     "clawdbot.plugin.json",
     "README.md",
@@ -44,6 +45,7 @@
   "dependencies": {
     "@wecom/aibot-node-sdk": "^1.0.0",
     "fast-xml-parser": "5.3.4",
+    "file-type": "^18.7.0",
     "undici": "^7.20.0",
     "zod": "^4.3.6"
   },
