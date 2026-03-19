@@ -196,6 +196,10 @@ function convertSdkMessageToInbound(body: BaseMessage): WecomBotInboundMessage {
         const fileBody = body as FileMessage;
         return { ...base, msgtype: "file" as any, file: fileBody.file, quote: fileBody.quote as any } as any;
     }
+    if (msgtype === "video") {
+        // SDK 没有导出 VideoMessage 类型，直接从 BaseMessage 取 video 字段
+        return { ...base, msgtype: "video" as any, video: (body as any).video, quote: (body as any).quote } as any;
+    }
     if (msgtype === "mixed") {
         const mixedBody = body as MixedMessage;
         return { ...base, msgtype: "mixed" as any, mixed: mixedBody.mixed, quote: mixedBody.quote as any } as any;

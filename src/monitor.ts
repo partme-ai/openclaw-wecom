@@ -12,6 +12,8 @@ import { decryptWecomEncrypted, encryptWecomPlaintext, verifyWecomSignature, com
 import { extractEncryptFromXml } from "./crypto/xml.js";
 import { getWecomRuntime } from "./runtime.js";
 import { decryptWecomMediaWithMeta } from "./media.js";
+import { uploadAndSendMediaBuffer } from "./media/index.js";
+import { getWsClient } from "./ws-adapter.js";
 import { WEBHOOK_PATHS, LIMITS as WECOM_LIMITS } from "./types/constants.js";
 import { handleAgentWebhook } from "./agent/index.js";
 import { resolveWecomAccount, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "./config/index.js";
@@ -548,8 +550,10 @@ function extractLocalFilePathsFromText(text: string): string[] {
   if (!text.trim()) return [];
 
   // Conservative: only accept common absolute paths for macOS/Linux hosts.
-  // This is primarily for “send local file” style requests (operator/debug usage).
-  const re = new RegExp(String.raw`(\/(?:Users|tmp|root|home)\/[^\s"'<>]+)`, "g");
+  // This is primarily for "send local file" style requests (operator/debug usage).
+  // Exclude CJK characters, CJK punctuation (，。！？；：), and other non-path chars
+  // to avoid swallowing trailing Chinese text as part of the path.
+  const re = new RegExp(String.raw`(\/(?:Users|tmp|root|home)\/[^\s"'<>\u3000-\u303F\uFF00-\uFFEF\u4E00-\u9FFF\u3400-\u4DBF]+)`, "g");
   const found = new Set<string>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
@@ -958,6 +962,7 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
   const maxBytes = resolveWecomMediaMaxBytes(target.config);
   const proxyUrl = resolveWecomEgressProxyUrl(target.config);
 
+
   // 图片消息处理：如果存在 url 且配置了 aesKey，则尝试解密下载
   if (msgtype === "image") {
     const url = String((msg as any).image?.url ?? "").trim();
@@ -1024,6 +1029,42 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
           ? `${(err as any).message}${((err as any).cause) ? ` (cause: ${String((err as any).cause)})` : ''}` 
           : String(err);
         return { body: `[file] (decryption failed: ${errorMessage})` };
+      }
+    }
+  }
+
+  // 视频消息处理：与文件消息类似，下载并解密视频
+  if (msgtype === "video") {
+    const url = String((msg as any).video?.url ?? "").trim();
+    const aesKey = globalAesKey || (msg as any).video?.aeskey || "";
+    logVerbose(target, `video: url=${url ? url.substring(0, 80) + "..." : "(empty)"} aesKey=${aesKey ? "(present)" : "(empty)"}`);
+    if (url && aesKey) {
+      try {
+        const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const inferred = inferInboundMediaMeta({
+          kind: "file",
+          buffer: decrypted.buffer,
+          sourceUrl: decrypted.sourceUrl || url,
+          sourceContentType: decrypted.sourceContentType,
+          sourceFilename: decrypted.sourceFilename,
+          explicitFilename: pickBotFileName(msg),
+        });
+        return {
+          body: `[video] 视频文件已保存，文件名: ${inferred.filename}`,
+          media: {
+            buffer: decrypted.buffer,
+            contentType: inferred.contentType,
+            filename: inferred.filename,
+          }
+        };
+      } catch (err) {
+        target.runtime.error?.(
+          `Failed to decrypt inbound video: ${String(err)}; 可调大 channels.wecom.media.maxBytes（当前=${maxBytes}）例如：openclaw config set channels.wecom.media.maxBytes ${50 * 1024 * 1024}`,
+        );
+        const errorMessage = typeof err === 'object' && err 
+          ? `${(err as any).message}${((err as any).cause) ? ` (cause: ${String((err as any).cause)})` : ''}` 
+          : String(err);
+        return { body: `[video] (decryption failed: ${errorMessage})` };
       }
     }
   }
@@ -1252,6 +1293,61 @@ async function startAgentForStream(params: {
 
     // 1) 图片：优先 Bot 群内/原会话交付（被动/流式 msg_item）
     if (imagePaths.length > 0 && otherPaths.length === 0) {
+      // WS 模式：走 uploadMedia + sendMediaMessage，避免大图 base64 单帧超限
+      if (isWsMode) {
+        const wsClient = getWsClient(account.accountId);
+        const sentFiles: string[] = [];
+        const failedFiles: string[] = [];
+
+        if (wsClient && chatId && chatId !== "unknown") {
+          for (const p of imagePaths) {
+            try {
+              const buf = await fs.readFile(p);
+              const fname = pathModule.basename(p);
+              const ext = pathModule.extname(p).slice(1).toLowerCase();
+              const mimeMap: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+              const guessedType = mimeMap[ext] ?? "image/png";
+              const result = await uploadAndSendMediaBuffer({
+                wsClient,
+                buffer: buf,
+                contentType: guessedType,
+                fileName: fname,
+                chatId,
+                log: (m) => logVerbose(target, m),
+                errorLog: (m) => target.runtime.error?.(m),
+              });
+              if (result.ok) {
+                sentFiles.push(fname);
+                logVerbose(target, `local-path: WS 图片上传发送成功 path=${p} type=${result.finalType}`);
+              } else {
+                failedFiles.push(fname);
+                logVerbose(target, `local-path: WS 图片上传发送失败 path=${p} reason=${result.rejectReason ?? result.error}`);
+              }
+            } catch (err) {
+              const fname = p.split("/").pop() || p;
+              failedFiles.push(fname);
+              target.runtime.error?.(`local-path: WS 图片读取/发送失败 path=${p}: ${String(err)}`);
+            }
+          }
+        } else {
+          logVerbose(target, `local-path: WS 模式但 WSClient 不可用或缺少 chatId，跳过图片发送`);
+          failedFiles.push(...imagePaths.map((p) => p.split("/").pop() || p));
+        }
+
+        const summary = sentFiles.length > 0
+          ? (sentFiles.length === 1 ? `已发送图片（${sentFiles[0]}）` : `已发送 ${sentFiles.length} 张图片`)
+            + (failedFiles.length > 0 ? `（失败：${failedFiles.join(", ")}）` : "")
+          : `图片发送失败：${failedFiles.join(", ")}`;
+
+        streamStore.updateStream(streamId, (s) => {
+          s.finished = true;
+          s.content = summary;
+        });
+        streamStore.onStreamFinished(streamId);
+        return;
+      }
+
+      // Webhook 模式：原有 base64 msgItems 路径
       const loaded: Array<{ base64: string; md5: string; path: string }> = [];
       for (const p of imagePaths) {
         try {
@@ -1373,11 +1469,54 @@ async function startAgentForStream(params: {
     // 2) 非图片文件：Bot 会话里提示 + Agent 私信兜底（目标锁定 userId）
     if (otherPaths.length > 0) {
       if (isWsMode) {
-        // WS 模式：不走 Agent 私信兜底，提示文件路径
-        const filename = otherPaths.length === 1 ? otherPaths[0]!.split("/").pop()! : `${otherPaths.length} 个文件`;
+        // WS 模式：通过 WSClient uploadMedia + sendMediaMessage 发送文件
+        const wsClient = getWsClient(account.accountId);
+        const sentFiles: string[] = [];
+        const failedFiles: string[] = [];
+
+        if (wsClient && chatId && chatId !== "unknown") {
+          for (const p of otherPaths) {
+            try {
+              const fsm = await import("node:fs/promises");
+              const pathModule = await import("node:path");
+              const buf = await fsm.readFile(p);
+              const fname = pathModule.basename(p);
+              const ext = pathModule.extname(p).slice(1).toLowerCase();
+              const guessedType = MIME_BY_EXT[ext] ?? "application/octet-stream";
+              const result = await uploadAndSendMediaBuffer({
+                wsClient,
+                buffer: buf,
+                contentType: guessedType,
+                fileName: fname,
+                chatId,
+                log: (m) => logVerbose(target, m),
+                errorLog: (m) => target.runtime.error?.(m),
+              });
+              if (result.ok) {
+                sentFiles.push(fname);
+                logVerbose(target, `local-path: WS 文件发送成功 path=${p} type=${result.finalType}`);
+              } else {
+                failedFiles.push(fname);
+                logVerbose(target, `local-path: WS 文件发送失败 path=${p} reason=${result.rejectReason ?? result.error}`);
+              }
+            } catch (err) {
+              const fname = p.split("/").pop() || p;
+              failedFiles.push(fname);
+              target.runtime.error?.(`local-path: WS 文件读取/发送失败 path=${p}: ${String(err)}`);
+            }
+          }
+        } else {
+          logVerbose(target, `local-path: WS 模式但 WSClient 不可用或缺少 chatId，跳过文件发送`);
+          failedFiles.push(...otherPaths.map((p) => p.split("/").pop() || p));
+        }
+
+        const summary = sentFiles.length > 0
+          ? `已发送文件：${sentFiles.join(", ")}${failedFiles.length > 0 ? `（失败：${failedFiles.join(", ")}）` : ""}`
+          : `文件发送失败：${failedFiles.join(", ")}`;
+
         streamStore.updateStream(streamId, (s) => {
           s.finished = true;
-          s.content = `已生成文件（${filename}），文件路径：${otherPaths.join(", ")}`;
+          s.content = summary;
         });
         streamStore.onStreamFinished(streamId);
         return;
@@ -1466,6 +1605,34 @@ async function startAgentForStream(params: {
       logVerbose(target, `saved inbound media to ${mediaPath} (${mediaType})`);
     } catch (err) {
       target.runtime.error?.(`Failed to save inbound media: ${String(err)}`);
+    }
+  }
+
+  // 3. 如果是视频，尝试用 ffmpeg 提取第一帧作为图片，让 LLM 能"看到"视频内容
+  let videoFirstFramePath: string | undefined;
+  if (mediaPath && mediaType?.startsWith("video/")) {
+    try {
+      const pathModule = await import("node:path");
+      const { execFile } = await import("node:child_process");
+      const { promisify } = await import("node:util");
+      const execFileAsync = promisify(execFile);
+      const framePath = mediaPath.replace(/\.[^.]+$/, "_frame1.jpg");
+      await execFileAsync("ffmpeg", [
+        "-i", mediaPath,
+        "-vframes", "1",
+        "-q:v", "2",
+        "-y",
+        framePath,
+      ], { timeout: 10_000 });
+      // 确认文件存在且非空
+      const fs = await import("node:fs/promises");
+      const stat = await fs.stat(framePath);
+      if (stat.size > 0) {
+        videoFirstFramePath = framePath;
+        logVerbose(target, `video: 提取第一帧成功 ${framePath} (${stat.size} bytes)`);
+      }
+    } catch (err) {
+      logVerbose(target, `video: 提取第一帧失败（ffmpeg 可能不可用）: ${String(err)}`);
     }
   }
 
@@ -1572,11 +1739,21 @@ async function startAgentForStream(params: {
   const isResetCommand = /^\/(new|reset)(?:\s|$)/i.test(rawBodyNormalized);
   const resetCommandKind = isResetCommand ? (rawBodyNormalized.match(/^\/(new|reset)/i)?.[1]?.toLowerCase() ?? "new") : null;
 
-  const attachments = mediaPath ? [{
+  const attachments: Array<{ name: string; mimeType?: string; url: string }> | undefined = mediaPath ? [{
     name: media?.filename || "file",
     mimeType: mediaType,
     url: pathToFileURL(mediaPath).href
   }] : undefined;
+
+  // 如果提取到了视频第一帧，追加为附件让 LLM 能看到视频画面
+  if (videoFirstFramePath && attachments) {
+    const pathModule = await import("node:path");
+    attachments.push({
+      name: pathModule.basename(videoFirstFramePath),
+      mimeType: "image/jpeg",
+      url: pathToFileURL(videoFirstFramePath).href,
+    });
+  }
 
   const ctxPayload = core.channel.reply.finalizeInboundContext({
     Body: body,
@@ -1839,7 +2016,35 @@ async function startAgentForStream(params: {
           return;
         }
 
-        const mediaUrls = payload.mediaUrls || (payload.mediaUrl ? [payload.mediaUrl] : []);
+        // ── 解析 LLM 输出文本中的 MEDIA: /path 指令 ──
+        // OpenClaw 核心的 splitMediaFromOutput 通常已提取并剥离 MEDIA: 行，
+        // 此处兜底处理核心未覆盖的边界情况（如旧版本核心、特殊格式等）。
+        const mediaDirectivePaths: string[] = [];
+        const mediaDirectiveRe = /^MEDIA:\s*`?([^\n`]+?)`?\s*$/gm;
+        let _mdMatch: RegExpExecArray | null;
+        while ((_mdMatch = mediaDirectiveRe.exec(text)) !== null) {
+          let p = (_mdMatch[1] ?? "").trim();
+          if (!p) continue;
+          // 展开 ~ 为 HOME 目录
+          if (p.startsWith("~/") || p === "~") {
+            const home = process.env.HOME || "/root";
+            p = p.replace(/^~/, home);
+          }
+          if (!mediaDirectivePaths.includes(p)) {
+            mediaDirectivePaths.push(p);
+            logVerbose(target, `media: 检测到 MEDIA: 指令 path=${p}`);
+          }
+        }
+        // 从回复文本中移除 MEDIA: 指令行，不展示给用户
+        if (mediaDirectivePaths.length > 0) {
+          text = text.replace(/^MEDIA:\s*`?[^\n`]+?`?\s*$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+        }
+
+        const mediaUrls = Array.from(new Set([
+          ...(payload.mediaUrls || []),
+          ...(payload.mediaUrl ? [payload.mediaUrl] : []),
+          ...mediaDirectivePaths,
+        ]));
         for (const mediaPath of mediaUrls) {
           let contentType: string | undefined;
           let filename = mediaPath.split("/").pop() || "attachment";
@@ -1859,11 +2064,50 @@ async function startAgentForStream(params: {
               buf = await fs.readFile(mediaPath);
               filename = pathModule.basename(mediaPath);
               const ext = pathModule.extname(mediaPath).slice(1).toLowerCase();
-              const imageExts: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
-              contentType = imageExts[ext] ?? "application/octet-stream";
+              contentType = MIME_BY_EXT[ext] ?? "application/octet-stream";
             }
 
             if (contentType?.startsWith("image/")) {
+              if (isWsMode) {
+                // WS 模式：图片也通过 uploadAndSendMediaBuffer 作为独立 image 消息发送
+                // 避免嵌入流式回复 base64 导致企微客户端可能不显示
+                if (current.agentMediaKeys.includes(mediaPath)) {
+                  logVerbose(target, `media: WS 模式跳过已发送的图片 path=${mediaPath}`);
+                  continue;
+                }
+                const wsClient = getWsClient(account.accountId);
+                if (wsClient && current.chatId) {
+                  const result = await uploadAndSendMediaBuffer({
+                    wsClient,
+                    buffer: buf,
+                    contentType: contentType ?? "image/jpeg",
+                    fileName: filename,
+                    chatId: current.chatId,
+                    log: (m) => logVerbose(target, m),
+                    errorLog: (m) => target.runtime.error?.(m),
+                  });
+                  if (result.ok) {
+                    logVerbose(target, `media: WS 图片上传发送成功 type=${result.finalType} filename=${filename}`);
+                    streamStore.updateStream(streamId, (s) => {
+                      s.agentMediaKeys = Array.from(new Set([...(s.agentMediaKeys ?? []), mediaPath]));
+                    });
+                  } else {
+                    // 降级：如果上传失败，回退到 base64 嵌入方式
+                    logVerbose(target, `media: WS 图片上传失败，回退到 base64 嵌入 filename=${filename}`);
+                    const base64 = buf.toString("base64");
+                    const md5 = crypto.createHash("md5").update(buf).digest("hex");
+                    current.images.push({ base64, md5 });
+                  }
+                } else {
+                  // WSClient 不可用时回退到 base64
+                  const base64 = buf.toString("base64");
+                  const md5 = crypto.createHash("md5").update(buf).digest("hex");
+                  current.images.push({ base64, md5 });
+                  logVerbose(target, `media: WS 模式但 WSClient 不可用，回退到 base64 嵌入 filename=${filename}`);
+                }
+                continue;
+              }
+              // 非 WS 模式：保持原有 base64 嵌入方式
               const base64 = buf.toString("base64");
               const md5 = crypto.createHash("md5").update(buf).digest("hex");
               current.images.push({ base64, md5 });
@@ -1871,8 +2115,37 @@ async function startAgentForStream(params: {
             } else {
               // Non-image media: Bot 不支持原样发送（尤其群聊）
               if (isWsMode) {
-                // WS 模式：不走 Agent 私信兜底，跳过非图片媒体
-                logVerbose(target, `media: WS 模式跳过 Agent 私信兜底 filename=${filename} contentType=${contentType ?? "unknown"}`);
+                // 去重：如果这个媒体路径已经发送过，跳过
+                if (current.agentMediaKeys.includes(mediaPath)) {
+                  logVerbose(target, `media: WS 模式跳过已发送的媒体 path=${mediaPath}`);
+                  continue;
+                }
+                // WS 模式：通过 WSClient uploadMedia + sendMediaMessage 发送非图片媒体
+                const wsClient = getWsClient(account.accountId);
+                if (wsClient && current.chatId) {
+                  const result = await uploadAndSendMediaBuffer({
+                    wsClient,
+                    buffer: buf,
+                    contentType: contentType ?? "application/octet-stream",
+                    fileName: filename,
+                    chatId: current.chatId,
+                    log: (m) => logVerbose(target, m),
+                    errorLog: (m) => target.runtime.error?.(m),
+                  });
+                  if (result.ok) {
+                    logVerbose(target, `media: WS 上传发送成功 type=${result.finalType}${result.downgraded ? ` (降级: ${result.downgradeNote})` : ""}`);
+                    // 记录已发送，防止后续 deliver 调用时重复发送
+                    streamStore.updateStream(streamId, (s) => {
+                      s.agentMediaKeys = Array.from(new Set([...(s.agentMediaKeys ?? []), mediaPath]));
+                    });
+                  } else if (result.rejected) {
+                    logVerbose(target, `media: 文件被拒绝 ${result.rejectReason}`);
+                  } else {
+                    target.runtime.error?.(`media: WS 上传发送失败 ${result.error}`);
+                  }
+                } else {
+                  logVerbose(target, `media: WS 模式但 WSClient 不可用或缺少 chatId，跳过 filename=${filename}`);
+                }
                 continue;
               }
 
@@ -2015,7 +2288,13 @@ async function startAgentForStream(params: {
 
   streamStore.updateStream(streamId, (s) => {
     if (!s.content.trim() && !(s.images?.length ?? 0)) {
-      s.content = "✅ 已处理完成。";
+      const hasMediaDelivered = (s.agentMediaKeys?.length ?? 0) > 0;
+      const hasFallback = Boolean(s.fallbackMode);
+      if (hasMediaDelivered) {
+        s.content = "✅ 文件已发送。";
+      } else if (!hasFallback) {
+        s.content = "✅ 已处理完成。";
+      }
     }
   });
 
@@ -2093,6 +2372,7 @@ function formatQuote(quote: WecomInboundQuote): string {
   }
   if (type === "voice") return `[引用: 语音] ${quote.voice?.content || ""}`;
   if (type === "file") return `[引用: 文件] ${quote.file?.url || ""}`;
+  if (type === "video") return `[引用: 视频] ${quote.video?.url || ""}`;
   return "";
 }
 
@@ -2114,6 +2394,7 @@ export function buildInboundBody(msg: WecomInboundMessage): string {
     } else body = "[mixed]";
   } else if (msgtype === "image") body = `[image] ${(msg as any).image?.url || ""}`;
   else if (msgtype === "file") body = `[file] ${(msg as any).file?.url || ""}`;
+  else if (msgtype === "video") body = `[video] ${(msg as any).video?.url || ""}`;
   else if (msgtype === "event") body = `[event] ${(msg as any).event?.eventtype || ""}`;
   else if (msgtype === "stream") body = `[stream_refresh] ${(msg as any).stream?.id || ""}`;
   else body = msgtype ? `[${msgtype}]` : "";

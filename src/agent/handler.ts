@@ -18,7 +18,7 @@ import {
     extractFileName,
     extractAgentId,
 } from "../shared/xml-parser.js";
-import { sendText, downloadMedia } from "./api-client.js";
+import { sendText, downloadMedia, uploadMedia, sendMedia as sendAgentMedia } from "./api-client.js";
 import { getWecomRuntime } from "../runtime.js";
 import type { WecomAgentInboundMessage } from "../types/index.js";
 import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "../shared/command-auth.js";
@@ -518,7 +518,9 @@ async function processAgentMessage(params: {
         CommandBody: finalContent,
         Attachments: attachments.length > 0 ? attachments : undefined,
         From: isGroup ? `wecom:group:${peerId}` : `wecom:${fromUser}`,
-        To: `wecom:${peerId}`,
+        // 使用 wecom-agent: 前缀标记 Agent 会话，确保 outbound 路由不会混入 Bot WS 发送路径。
+        // resolveWecomTarget 已支持剥离 wecom-agent: 前缀（target.ts L41），解析结果不变。
+        To: `wecom-agent:${fromUser}`,
         SessionKey: route.sessionKey,
         AccountId: route.accountId,
         ChatType: isGroup ? "group" : "direct",
@@ -553,18 +555,107 @@ async function processAgentMessage(params: {
         ctx: ctxPayload,
         cfg: config,
         dispatcherOptions: {
-            deliver: async (payload: { text?: string }, info: { kind: string }) => {
-                const text = payload.text ?? "";
-                if (!text) return;
+            deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
+                let text = payload.text ?? "";
 
-                try {
-                    // 统一策略：Agent 模式在群聊场景默认只私信触发者（避免 wr/wc chatId 86008）
-                    await sendText({ agent, toUser: fromUser, chatId: undefined, text });
-                    log?.(`[wecom-agent] reply delivered (${info.kind}) to ${fromUser}`);
-                } catch (err: unknown) {
-                    const message = err instanceof Error ? `${err.message}${err.cause ? ` (cause: ${String(err.cause)})` : ""}` : String(err);
-                    error?.(`[wecom-agent] reply failed: ${message}`);
-                }            },
+                // ── 1. 解析 MEDIA: 指令（兜底处理核心 splitMediaFromOutput 未覆盖的边界情况）──
+                const mediaDirectivePaths: string[] = [];
+                const mediaDirectiveRe = /^MEDIA:\s*`?([^\n`]+?)`?\s*$/gm;
+                let _mdMatch: RegExpExecArray | null;
+                while ((_mdMatch = mediaDirectiveRe.exec(text)) !== null) {
+                    let p = (_mdMatch[1] ?? "").trim();
+                    if (!p) continue;
+                    if (p.startsWith("~/") || p === "~") {
+                        const home = process.env.HOME || "/root";
+                        p = p.replace(/^~/, home);
+                    }
+                    if (!mediaDirectivePaths.includes(p)) mediaDirectivePaths.push(p);
+                }
+                // 从回复文本中移除 MEDIA: 指令行
+                if (mediaDirectivePaths.length > 0) {
+                    text = text.replace(/^MEDIA:\s*`?[^\n`]+?`?\s*$/gm, "").replace(/\n{3,}/g, "\n\n").trim();
+                }
+
+                // ── 2. 合并所有媒体 URL ──
+                const mediaUrls = Array.from(new Set([
+                    ...(payload.mediaUrls || []),
+                    ...(payload.mediaUrl ? [payload.mediaUrl] : []),
+                    ...mediaDirectivePaths,
+                ]));
+
+                // ── 3. 发送文本部分 ──
+                if (text.trim()) {
+                    try {
+                        await sendText({ agent, toUser: fromUser, chatId: undefined, text });
+                        log?.(`[wecom-agent] reply delivered (${info.kind}) to ${fromUser} (textLen=${text.length})`);
+                    } catch (err: unknown) {
+                        const message = err instanceof Error ? `${err.message}${err.cause ? ` (cause: ${String(err.cause)})` : ""}` : String(err);
+                        error?.(`[wecom-agent] reply failed: ${message}`);
+                    }
+                }
+
+                // ── 4. 逐个发送媒体文件（通过 Agent API 上传 + 发送）──
+                for (const mediaPath of mediaUrls) {
+                    try {
+                        const isRemoteUrl = /^https?:\/\//i.test(mediaPath);
+                        let buf: Buffer;
+                        let contentType: string;
+                        let filename: string;
+
+                        if (isRemoteUrl) {
+                            const res = await fetch(mediaPath, { signal: AbortSignal.timeout(30_000) });
+                            if (!res.ok) throw new Error(`download failed: ${res.status}`);
+                            buf = Buffer.from(await res.arrayBuffer());
+                            contentType = res.headers.get("content-type") || "application/octet-stream";
+                            filename = new URL(mediaPath).pathname.split("/").pop() || "media";
+                        } else {
+                            const fs = await import("node:fs/promises");
+                            const pathModule = await import("node:path");
+                            buf = await fs.readFile(mediaPath);
+                            filename = pathModule.basename(mediaPath);
+                            const ext = pathModule.extname(mediaPath).slice(1).toLowerCase();
+                            const MIME_MAP: Record<string, string> = {
+                                jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+                                webp: "image/webp", mp3: "audio/mpeg", wav: "audio/wav", amr: "audio/amr",
+                                mp4: "video/mp4", mov: "video/quicktime", pdf: "application/pdf",
+                                doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                txt: "text/plain", csv: "text/csv", json: "application/json", zip: "application/zip",
+                            };
+                            contentType = MIME_MAP[ext] ?? "application/octet-stream";
+                        }
+
+                        // 确定企微媒体类型
+                        let mediaType: "image" | "voice" | "video" | "file" = "file";
+                        if (contentType.startsWith("image/")) mediaType = "image";
+                        else if (contentType.startsWith("audio/")) mediaType = "voice";
+                        else if (contentType.startsWith("video/")) mediaType = "video";
+
+                        log?.(`[wecom-agent] uploading media: ${filename} (${mediaType}, ${contentType}, ${buf.length} bytes)`);
+
+                        const mediaId = await uploadMedia({ agent, type: mediaType, buffer: buf, filename });
+
+                        await sendAgentMedia({
+                            agent,
+                            toUser: fromUser,
+                            mediaId,
+                            mediaType,
+                            ...(mediaType === "video" ? { title: filename, description: "" } : {}),
+                        });
+
+                        log?.(`[wecom-agent] media sent (${info.kind}) to ${fromUser}: ${filename} (${mediaType})`);
+                    } catch (err: unknown) {
+                        const message = err instanceof Error ? `${err.message}${err.cause ? ` (cause: ${String(err.cause)})` : ""}` : String(err);
+                        error?.(`[wecom-agent] media send failed: ${mediaPath}: ${message}`);
+                        // 降级：发文本通知用户
+                        try {
+                            await sendText({ agent, toUser: fromUser, chatId: undefined, text: `⚠️ 文件发送失败: ${mediaPath.split("/").pop() || mediaPath}\n${message}` });
+                        } catch { /* ignore */ }
+                    }
+                }
+
+                // 如果既没有文本也没有媒体，不做任何事（防止空回复）
+            },
             onError: (err: unknown, info: { kind: string }) => {
                 error?.(`[wecom-agent] ${info.kind} reply error: ${String(err)}`);
             },

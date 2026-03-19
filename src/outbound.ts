@@ -4,8 +4,62 @@ import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } f
 import { resolveWecomAccount, resolveWecomAccountConflict, resolveWecomAccounts } from "./config/index.js";
 import { getWecomRuntime } from "./runtime.js";
 import { getWsClient, waitForWsConnection } from "./ws-adapter.js";
+import { uploadAndSendMediaBuffer } from "./media/index.js";
 
 import { resolveWecomTarget } from "./target.js";
+
+// ─── MIME 类型映射表（扩展名 → Content-Type）──────────────────────────
+
+const MIME_BY_EXT: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+  webp: "image/webp", bmp: "image/bmp", mp3: "audio/mpeg", wav: "audio/wav",
+  amr: "audio/amr", mp4: "video/mp4", mov: "video/quicktime",
+  pdf: "application/pdf", doc: "application/msword",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  txt: "text/plain", csv: "text/csv", tsv: "text/tab-separated-values", md: "text/markdown", json: "application/json",
+  xml: "application/xml", yaml: "application/yaml", yml: "application/yaml",
+  zip: "application/zip", rar: "application/vnd.rar", "7z": "application/x-7z-compressed",
+  tar: "application/x-tar", gz: "application/gzip", tgz: "application/gzip",
+  rtf: "application/rtf", odt: "application/vnd.oasis.opendocument.text",
+};
+
+// ─── 共享的媒体加载逻辑 ────────────────────────────────────────────
+
+/**
+ * 从 URL 或本地文件路径加载媒体文件，返回 buffer、contentType、filename。
+ * 供 Bot WS 和 Agent 两种发送模式共用。
+ */
+async function loadMediaBuffer(mediaUrl: string): Promise<{
+  buffer: Buffer;
+  contentType: string;
+  filename: string;
+}> {
+  const isRemoteUrl = /^https?:\/\//i.test(mediaUrl);
+
+  if (isRemoteUrl) {
+    const res = await fetch(mediaUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) {
+      throw new Error(`Failed to download media: ${res.status}`);
+    }
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get("content-type") || "application/octet-stream";
+    const urlPath = new URL(mediaUrl).pathname;
+    const filename = urlPath.split("/").pop() || "media";
+    return { buffer, contentType, filename };
+  }
+
+  // 本地文件路径
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const buffer = await fs.readFile(mediaUrl);
+  const filename = path.basename(mediaUrl);
+  const ext = path.extname(mediaUrl).slice(1).toLowerCase();
+  const contentType = MIME_BY_EXT[ext] || "application/octet-stream";
+  console.log(`[wecom-outbound] Reading local file: ${mediaUrl}, ext=${ext}, contentType=${contentType}`);
+  return { buffer, contentType, filename };
+}
 
 function resolveAgentConfigOrThrow(params: {
   cfg: ChannelOutboundContext["cfg"];
@@ -166,8 +220,68 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     };
   },
   sendMedia: async ({ cfg, to, text, mediaUrl, accountId }: ChannelOutboundContext) => {
-    // signal removed - not supported in current SDK
+    if (!mediaUrl) {
+      throw new Error("WeCom outbound requires mediaUrl.");
+    }
 
+    // ── Bot WebSocket 模式 ──
+    const resolvedAccount = resolveWecomAccount({ cfg, accountId });
+    const botAccount = resolvedAccount.bot;
+    if (botAccount?.connectionMode === "websocket" && botAccount.configured) {
+      const rawTo = typeof to === "string" ? to.trim().toLowerCase() : "";
+      // 如果目标是 Agent 会话（wecom-agent:），跳过 WS Bot，走 Agent outbound
+      if (!rawTo.startsWith("wecom-agent:")) {
+        const wsTarget = resolveWecomTarget(to);
+        const chatId = wsTarget?.touser || wsTarget?.chatid;
+        if (!chatId) {
+          throw new Error(`[wecom-outbound] Bot WS sendMedia 无法解析目标 chatId (to=${String(to)})`);
+        }
+
+        // 确保 WS 连接可用
+        let wsClient = getWsClient(botAccount.accountId);
+        if (!wsClient?.isConnected) {
+          console.log(`[wecom-outbound] Bot WS 未连接，等待重连... (accountId=${botAccount.accountId})`);
+          const reconnected = await waitForWsConnection(botAccount.accountId, 10_000);
+          if (!reconnected) {
+            throw new Error(`[wecom-outbound] Bot WS 等待重连超时，无法发送媒体 (accountId=${botAccount.accountId})`);
+          }
+          wsClient = getWsClient(botAccount.accountId);
+        }
+        if (!wsClient?.isConnected) {
+          throw new Error(`[wecom-outbound] Bot WS 重连后仍不可用 (accountId=${botAccount.accountId})`);
+        }
+
+        // 加载媒体并通过 WSClient 上传发送
+        const { buffer, contentType, filename } = await loadMediaBuffer(mediaUrl);
+        console.log(`[wecom-outbound] Bot WS sendMedia: chatId=${chatId} filename=${filename} contentType=${contentType} size=${buffer.length}`);
+
+        const result = await uploadAndSendMediaBuffer({
+          wsClient,
+          buffer,
+          contentType,
+          fileName: filename,
+          chatId,
+          log: (msg) => console.log(`[wecom-outbound] ${msg}`),
+          errorLog: (msg) => console.error(`[wecom-outbound] ${msg}`),
+        });
+
+        if (result.rejected) {
+          throw new Error(`WeCom Bot WS 媒体被拒绝: ${result.rejectReason}`);
+        }
+        if (!result.ok) {
+          throw new Error(`WeCom Bot WS 媒体发送失败: ${result.error}`);
+        }
+
+        console.log(`[wecom-outbound] Bot WS sendMedia 成功: type=${result.finalType}${result.downgraded ? ` (降级: ${result.downgradeNote})` : ""}`);
+        return {
+          channel: "wecom",
+          messageId: `ws-bot-media-${Date.now()}`,
+          timestamp: Date.now(),
+        };
+      }
+    }
+
+    // ── Agent 模式 ──
     const agent = resolveAgentConfigOrThrow({ cfg, accountId });
     const target = resolveWecomTarget(to);
     if (!target) {
@@ -180,52 +294,8 @@ export const wecomOutbound: ChannelOutboundAdapter = {
           `请改为发送给用户（userid / user:xxx），或由 Bot 模式在群内交付。`,
       );
     }
-    if (!mediaUrl) {
-      throw new Error("WeCom outbound requires mediaUrl.");
-    }
 
-    let buffer: Buffer;
-    let contentType: string;
-    let filename: string;
-
-    // 判断是 URL 还是本地文件路径
-    const isRemoteUrl = /^https?:\/\//i.test(mediaUrl);
-
-    if (isRemoteUrl) {
-      const res = await fetch(mediaUrl, { signal: AbortSignal.timeout(30000) });
-      if (!res.ok) {
-        throw new Error(`Failed to download media: ${res.status}`);
-      }
-      buffer = Buffer.from(await res.arrayBuffer());
-      contentType = res.headers.get("content-type") || "application/octet-stream";
-      const urlPath = new URL(mediaUrl).pathname;
-      filename = urlPath.split("/").pop() || "media";
-    } else {
-      // 本地文件路径
-      const fs = await import("node:fs/promises");
-      const path = await import("node:path");
-
-      buffer = await fs.readFile(mediaUrl);
-      filename = path.basename(mediaUrl);
-
-      // 根据扩展名推断 content-type
-      const ext = path.extname(mediaUrl).slice(1).toLowerCase();
-      const mimeTypes: Record<string, string> = {
-        jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
-        webp: "image/webp", bmp: "image/bmp", mp3: "audio/mpeg", wav: "audio/wav",
-        amr: "audio/amr", mp4: "video/mp4", pdf: "application/pdf", doc: "application/msword",
-        docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        txt: "text/plain", csv: "text/csv", tsv: "text/tab-separated-values", md: "text/markdown", json: "application/json",
-        xml: "application/xml", yaml: "application/yaml", yml: "application/yaml",
-        zip: "application/zip", rar: "application/vnd.rar", "7z": "application/x-7z-compressed",
-        tar: "application/x-tar", gz: "application/gzip", tgz: "application/gzip",
-        rtf: "application/rtf", odt: "application/vnd.oasis.opendocument.text",
-      };
-      contentType = mimeTypes[ext] || "application/octet-stream";
-      console.log(`[wecom-outbound] Reading local file: ${mediaUrl}, ext=${ext}, contentType=${contentType}`);
-    }
+    const { buffer, contentType, filename } = await loadMediaBuffer(mediaUrl);
 
     let mediaType: "image" | "voice" | "video" | "file" = "file";
     if (contentType.startsWith("image/")) mediaType = "image";

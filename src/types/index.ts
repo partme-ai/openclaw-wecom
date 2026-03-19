@@ -31,6 +31,7 @@ export type {
     WecomBotInboundBase,
     WecomBotInboundText,
     WecomBotInboundVoice,
+    WecomBotInboundVideo,
     WecomBotInboundStreamRefresh,
     WecomBotInboundEvent,
     WecomBotInboundMessage,

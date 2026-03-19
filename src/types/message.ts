@@ -41,6 +41,12 @@ export type WecomBotInboundVoice = WecomBotInboundBase & {
     quote?: WecomInboundQuote;
 };
 
+export type WecomBotInboundVideo = WecomBotInboundBase & {
+    msgtype: "video";
+    video?: { url?: string; aeskey?: string };
+    quote?: WecomInboundQuote;
+};
+
 export type WecomBotInboundStreamRefresh = WecomBotInboundBase & {
     msgtype: "stream";
     stream?: { id?: string };
@@ -62,7 +68,7 @@ export type WecomBotInboundEvent = WecomBotInboundBase & {
  * 支持引用文本、图片、混合类型、语音、文件等。
  */
 export type WecomInboundQuote = {
-    msgtype?: "text" | "image" | "mixed" | "voice" | "file";
+    msgtype?: "text" | "image" | "mixed" | "voice" | "file" | "video";
     /** 引用文本内容 */
     text?: { content?: string };
     /** 引用图片 URL */
@@ -79,11 +85,14 @@ export type WecomInboundQuote = {
     voice?: { content?: string };
     /** 引用文件 */
     file?: { url?: string };
+    /** 引用视频 */
+    video?: { url?: string };
 };
 
 export type WecomBotInboundMessage =
     | WecomBotInboundText
     | WecomBotInboundVoice
+    | WecomBotInboundVideo
     | WecomBotInboundStreamRefresh
     | WecomBotInboundEvent
     | (WecomBotInboundBase & { quote?: WecomInboundQuote } & Record<string, unknown>);
