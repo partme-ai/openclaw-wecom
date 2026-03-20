@@ -1,7 +1,7 @@
 # OpenClaw 企业微信（WeCom）Channel 插件
 
 <p align="center">
-  <a href="https://github.com/TencentCloud-Lighthouse/wecom"><img src="https://img.shields.io/badge/GitHub-TencentCloud--Lighthouse%2Fwecom-blue?style=for-the-badge&logo=github" alt="GitHub Repo" /></a>
+  <a href="https://github.com/TencentCloud-Lighthouse/openclaw-wecom"><img src="https://img.shields.io/badge/GitHub-TencentCloud--Lighthouse%2Fwecom-blue?style=for-the-badge&logo=github" alt="GitHub Repo" /></a>
   <img src="https://img.shields.io/badge/License-ISC-blue?style=for-the-badge" alt="License" />
 </p>
 
@@ -22,7 +22,7 @@
 <a id="sec-1"></a>
 ## 💡 核心价值：为什么选择本插件？
 
-### 独创架构：Bot + Agent 双模融合 (Original Design by YanHaidao)
+### 独创架构：Bot + Agent 双模融合
 
 传统的企微插件通常只能在 "只能聊天的机器人 (Bot)" 和 "只能推送的自建应用 (Agent)" 之间二选一。
 本插件采用 **双模并行架构**，同时压榨两种模式的极限能力：
@@ -30,7 +30,7 @@
 *   **Bot 通道 (智能体)**：负责 **实时对话**。提供毫秒级流式响应（打字机效果），零延迟交互。
 *   **Agent 通道 (自建应用)**：负责 **能力兜底**。当需要发送图片/文件、进行全员广播、或 Bot 对话超时（>6分钟）时，无缝切换到 Agent 通道接管。
 
-### 🚀 企业级：多账号（Multi-account）矩阵隔离 (Original Design)
+### 🚀 企业级：多账号（Multi-account）矩阵隔离
 
 本插件支持 **无限扩展的账号矩阵**，这是本插件区别于普通插件的核心壁垒：
 
@@ -332,8 +332,8 @@ openclaw channels status
 7. 记录回调 Token 和 EncodingAESKey
 
 <div align="center">
-  <img src="https://cdn.jsdelivr.net/npm/@mocrane/wecom@latest/assets/03.bot.page.png" width="45%" alt="Bot Config" />
-  <img src="https://cdn.jsdelivr.net/npm/@mocrane/wecom@latest/assets/03.agent.page.png" width="45%" alt="Agent Config" />
+  <img src="https://raw.githubusercontent.com/TencentCloud-Lighthouse/openclaw-wecom/main/assets/03.bot.page.png" width="45%" alt="Bot Config" />
+  <img src="https://raw.githubusercontent.com/TencentCloud-Lighthouse/openclaw-wecom/main/assets/03.agent.page.png" width="45%" alt="Agent Config" />
 </div>
 
 ---
@@ -476,13 +476,12 @@ Agent 输出 `{"template_card": ...}` 时自动渲染为交互卡片：
 
 <a id="sec-legal"></a>
 
-## ⚖️ 授权与原创声明
+## ⚖️ 授权与致谢
 
-本项目采用 **ISC License** 开源协议，并在此强调以下要求：
+本项目采用 **ISC License** 开源协议。
 
-1. **保留署名**：根据 ISC 协议，您在任何分发、修改或使用本项目（或其部分逻辑）时，**必须**在显著位置完整保留本项目的版权声明（Copyright Notice）。
-2. **尊重原创**：本项目包含的“Bot/Agent 自动化互补架构”、“长对话超时接力”、“WeCom 全媒体流自动化处理”等核心逻辑均为作者 **YanHaidao** 独立思考与实践的原创成果。
-3. **维权申明**：对于恶意删除署名、像素级抄袭、混淆视听的恶意搬运行为，作者保留在社区公示及通过法律途径维权的权利。
+- **开源协议**：您在分发、修改或使用本项目时，请遵循 ISC 协议的相关要求。
+- **致谢**：本项目最初基于 **YanHaidao** 的企业微信插件 fork 而来，感谢其在早期版本中的工作与贡献。当前版本已由 **mocrane** 独立重构与维护。
 
 ---
 
