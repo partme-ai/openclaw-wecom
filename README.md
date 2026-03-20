@@ -1,16 +1,9 @@
 # OpenClaw 企业微信（WeCom）Channel 插件
 
-> [!WARNING]
-> **OpenClaw 3.1+ 升级必读**：升级到 OpenClaw `3.1` 及以上版本的用户务必同步升级本插件，并将企业微信回调 URL 更新为 OpenClaw 推荐路径：`/plugins/wecom/bot/{accountId}` 与 `/plugins/wecom/agent/{accountId}`（旧 `/wecom/*` 仍兼容但不再维护）。
-
 <p align="center">
-  <img src="https://img.shields.io/badge/Original%20Project-YanHaidao-orange?style=for-the-badge&logo=github" alt="Original Project" />
+  <a href="https://github.com/TencentCloud-Lighthouse/wecom"><img src="https://img.shields.io/badge/GitHub-TencentCloud--Lighthouse%2Fwecom-blue?style=for-the-badge&logo=github" alt="GitHub Repo" /></a>
   <img src="https://img.shields.io/badge/License-ISC-blue?style=for-the-badge" alt="License" />
 </p>
-
-> [!WARNING]
-> **原创声明**：本项目涉及的“多账号隔离与矩阵路由架构”、“Bot+Agent双模融合架构”、“长任务超时接力逻辑”及“全自动媒体流转接”等核心设计均为作者 **YanHaidao** 独立思考与实践的原创成果。
-> 欢迎技术交流与合规引用，但**严禁任何不经授权的“功能像素级抄袭”或删除原作者署名的代码搬运行为**。
 
 <p align="center">
   <strong>🚀 企业级双模式 AI 助手接入方案</strong>
@@ -477,10 +470,6 @@ Agent 输出 `{"template_card": ...}` 时自动渲染为交互卡片：
 
 ## 七、📮 联系我
 
-微信交流群（扫码入群）：
-
-![企业微信交流群](https://openclaw.cc/wechat-openclaw-cn-qr.jpg)
-
 维护者：mocrane
 
 ---
@@ -500,7 +489,22 @@ Agent 输出 `{"template_card": ...}` 时自动渲染为交互卡片：
 <a id="sec-10"></a>
 ## 八、📝 更新日志
 
-### 2026.3.3（今日更新简报）
+### 2026.3.19
+
+- 【多媒体发送】📎 **机器人富媒体发送**：Bot 支持向用户发送文件、图片、视频，补齐发送侧多模态能力。
+- 【MCP 集成】🧩 **企业级 MCP 工具接入**：群聊与私聊中支持调用日程、待办、通讯录 MCP，实现对话式办公协作。
+
+### 2026.3.15
+
+- 【文档能力】📄 **企微文档操作支持**：新增企业微信文档读写操作能力，可在对话中直接操作企微文档。
+- 【交互体验】⌨️ **打字机效果**：支持逐字流式输出的打字机效果，提升对话交互体验。
+
+### 2026.3.8
+
+- 【长连接】🔗 **Bot 长连接模式**：企微机器人支持长连接（WebSocket）模式，降低延迟、提升连接稳定性。
+- 【主动触达】📤 **长连接模式主动发送**：长连接模式下 Bot 支持主动向用户发送消息，突破传统被动回复限制。
+
+### 2026.3.3
 
 - 【SDK适配】♻️ **插件 HTTP 注册升级**：入口改为 `registerHttpRoute`（`/plugins/wecom` + `match=prefix` + `auth=plugin`），适配 OpenClaw 新版插件接口。
 - 【兼容修复】🔁 **旧入口保持可达**：同步注册 `/wecom` 前缀路由，保障历史 Bot/Agent 回调地址继续可用。
