@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { generateReqId } from "@wecom/aibot-node-sdk";
-import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID } from "../compat/plugin-sdk-shim.js";
 import { getWsClient } from "../ws-adapter.js";
 import { withTimeout } from "../timeout.js";
 

@@ -3,10 +3,11 @@ import type {
   ChannelPlugin,
   OpenClawConfig,
 } from "openclaw/plugin-sdk";
+
 import {
   deleteAccountFromConfigSection,
   setAccountEnabledInConfigSection,
-} from "openclaw/plugin-sdk";
+} from "./compat/plugin-sdk-shim.js";
 
 import {
   DEFAULT_ACCOUNT_ID,
@@ -39,10 +40,12 @@ function normalizeWecomMessagingTarget(raw: string): string | undefined {
   return trimmed.replace(/^(wecom-agent|wecom|wechatwork|wework|qywx):/i, "").trim() || undefined;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- onboarding 在 >=3.22 中已重命名为 setupWizard，
+// 但我们仍设置旧字段以兼容 <3.22 版本的 OpenClaw。
 export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
   id: "wecom",
   meta,
-  onboarding: wecomOnboardingAdapter,
+  onboarding: wecomOnboardingAdapter as any,
   setup: {
     resolveAccountId: ({ cfg, accountId }) => {
       return accountId?.trim() || resolveDefaultWecomAccountId(cfg as OpenClawConfig) || DEFAULT_ACCOUNT_ID;
@@ -111,14 +114,14 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
         accountId,
         enabled,
         allowTopLevel: true,
-      }),
+      }) as OpenClawConfig,
     deleteAccount: ({ cfg, accountId }) =>
       deleteAccountFromConfigSection({
         cfg: cfg as OpenClawConfig,
         sectionKey: "wecom",
         accountId,
         clearBaseFields: ["bot", "agent"],
-      }),
+      }) as OpenClawConfig,
     isConfigured: (account, cfg) => {
       if (!account.configured) {
         return false;

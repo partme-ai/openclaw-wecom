@@ -4,12 +4,50 @@
  */
 
 import type {
-    ChannelOnboardingAdapter,
-    ChannelOnboardingDmPolicy,
     OpenClawConfig,
     WizardPrompter,
 } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, promptAccountId } from "openclaw/plugin-sdk";
+import {
+    DEFAULT_ACCOUNT_ID,
+    resolvePromptAccountId,
+} from "./compat/plugin-sdk-shim.js";
+
+// ─── 类型兼容 ───
+// v2026.3.2 使用 ChannelOnboardingAdapter / ChannelOnboardingDmPolicy（来自 onboarding-types.ts）
+// v2026.3.22+ 重命名为 ChannelSetupWizardAdapter / ChannelSetupDmPolicy（setup-wizard-types.ts）
+// 且 ChannelPlugin.onboarding → ChannelPlugin.setupWizard
+// 为同时支持新旧版本，此处直接声明本地接口。
+type ChannelOnboardingDmPolicy = {
+    label: string;
+    channel: string;
+    policyKey: string;
+    allowFromKey: string;
+    getCurrent: (cfg: OpenClawConfig, accountId?: string) => string;
+    setPolicy: (cfg: OpenClawConfig, policy: string, accountId?: string) => OpenClawConfig;
+    promptAllowFrom?: (params: {
+        cfg: OpenClawConfig;
+        prompter: WizardPrompter;
+        accountId?: string;
+    }) => Promise<OpenClawConfig>;
+};
+
+type ChannelOnboardingAdapter = {
+    channel: string;
+    dmPolicy?: ChannelOnboardingDmPolicy;
+    getStatus: (ctx: { cfg: OpenClawConfig }) => Promise<{
+        channel: string;
+        configured: boolean;
+        statusLines: string[];
+        selectionHint?: string;
+        quickstartScore?: number;
+    }>;
+    configure: (ctx: {
+        cfg: OpenClawConfig;
+        prompter: WizardPrompter;
+        accountOverrides: Record<string, string | undefined>;
+        shouldPromptAccountIds: boolean;
+    }) => Promise<{ cfg: OpenClawConfig; accountId?: string }>;
+};
 import { listWecomAccountIds, resolveDefaultWecomAccountId, resolveWecomAccount, resolveWecomAccounts } from "./config/index.js";
 import type { WecomConfig, WecomBotConfig, WecomAgentConfig, WecomDmConfig, WecomAccountConfig } from "./types/index.js";
 
@@ -299,12 +337,13 @@ async function resolveOnboardingAccountId(params: {
     const override = params.accountOverride?.trim();
     let accountId = override || defaultAccountId;
     if (!override && params.shouldPromptAccountIds) {
+        const promptAccountId = await resolvePromptAccountId();
         accountId = await promptAccountId({
             cfg: params.cfg,
             prompter: params.prompter,
             label: "WeCom",
             currentId: accountId,
-            listAccountIds: (cfg) => listWecomAccountIds(cfg),
+            listAccountIds: (cfg) => listWecomAccountIds(cfg as OpenClawConfig),
             defaultAccountId,
         });
     }
@@ -690,9 +729,9 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
         const account = resolveWecomAccount({ cfg });
         return (account.bot?.config.dm?.policy ?? "pairing") as "pairing";
     },
-    setPolicy: (cfg: OpenClawConfig, policy: "pairing" | "allowlist" | "open" | "disabled") => {
+    setPolicy: (cfg: OpenClawConfig, policy: string) => {
         const accountId = resolveDefaultWecomAccountId(cfg);
-        return setWecomDmPolicy(cfg, "bot", { policy }, accountId);
+        return setWecomDmPolicy(cfg, "bot", { policy: policy as "pairing" | "allowlist" | "open" | "disabled" }, accountId);
     },
     promptAllowFrom: async ({ cfg, prompter }: { cfg: OpenClawConfig; prompter: WizardPrompter }) => {
         const allowFromStr = String(

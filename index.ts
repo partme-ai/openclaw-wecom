@@ -1,5 +1,5 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
-import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+import { emptyPluginConfigSchema, ensureConfigHelpers } from "./src/compat/plugin-sdk-shim.js";
 
 import { handleWecomWebhookRequest } from "./src/monitor.js";
 import { setWecomRuntime } from "./src/runtime.js";
@@ -22,6 +22,11 @@ const plugin = {
    * 5. 注入 MEDIA 指令提示词（仅 wecom 通道），指导 LLM 使用 MEDIA: 语法发送文件。
    */
   register(api: OpenClawPluginApi) {
+    // 初始化兼容层：确保 deleteAccountFromConfigSection 等函数在
+    // gateway 启动前绑定完成（register 执行与 gateway startAccount 之间
+    // 有充足的异步间隙）。
+    void ensureConfigHelpers();
+
     setWecomRuntime(api.runtime);
     api.registerChannel({ plugin: wecomPlugin });
     const routes = ["/plugins/wecom", "/wecom"];
@@ -38,12 +43,12 @@ const plugin = {
     api.registerTool(createWeComMcpTool(), { name: "wecom_mcp" });
 
     // 注入媒体发送指令和文件大小限制提示词（与官方 @wecom/wecom-openclaw-plugin 保持一致）。
-    // 仅 wecom 通道注入，避免影响其他通道。
+    // 仅 wecom 通道注入，避免污染其他通道（如 Telegram/Discord）的 system prompt。
     // deliver 回调中保留兜底正则解析，作为双重保障。
     api.on("before_prompt_build", (_event, ctx) => {
       if (ctx.channelId !== "wecom") return;
       return {
-        prependContext: [
+        systemPrompt: [
           "【发送文件/图片/视频/语音】",
           "当你需要向用户发送文件、图片、视频或语音时，必须在回复中单独一行使用 MEDIA: 指令，后面跟文件的本地路径。",
           "格式：MEDIA: /文件的绝对路径",

@@ -82,12 +82,13 @@ describe("wecom plugin register", () => {
     // Non-wecom channel: should return undefined (no injection)
     expect(handler({}, { channelId: "telegram" })).toBeUndefined();
     expect(handler({}, { channelId: "discord" })).toBeUndefined();
+    expect(handler({}, {})).toBeUndefined();
 
-    // Wecom channel: should return appendSystemContext with MEDIA instructions
+    // Wecom channel: should return systemPrompt with MEDIA instructions
     const result = handler({}, { channelId: "wecom" });
     expect(result).toBeDefined();
-    expect(result.prependContext).toContain("MEDIA:");
-    expect(result.prependContext).toContain("【发送文件/图片/视频/语音】");
-    expect(result.prependContext).toContain("【文件大小限制】");
+    expect(result.systemPrompt).toContain("MEDIA:");
+    expect(result.systemPrompt).toContain("【发送文件/图片/视频/语音】");
+    expect(result.systemPrompt).toContain("【文件大小限制】");
   });
 });

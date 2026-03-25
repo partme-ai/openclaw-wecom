@@ -11,11 +11,7 @@ import os from "os";
 import path from "path";
 import type { WSClient } from "@wecom/aibot-node-sdk";
 import { generateReqId } from "@wecom/aibot-node-sdk";
-import {
-    readJsonFileWithFallback,
-    writeJsonFileAtomically,
-    withFileLock,
-} from "openclaw/plugin-sdk";
+import { resolveFileIoHelpers } from "./compat/plugin-sdk-shim.js";
 import type { WecomRuntimeEnv } from "./monitor/types.js";
 import { withTimeout } from "./timeout.js";
 
@@ -121,6 +117,9 @@ async function saveMcpConfigToPluginJson(
             randomize: true,
         },
     };
+
+    const { withFileLock, readJsonFileWithFallback, writeJsonFileAtomically } =
+        await resolveFileIoHelpers();
 
     await withFileLock(wecomConfigPath, lockOptions, async () => {
         // 读取现有配置（不存在时使用空对象）
