@@ -14,6 +14,7 @@ jobs:
     permissions:
       contents: write # 发布 Release
       id-token: write # 获取 OIDC 身份令牌
+      packages: write # 发布到 GitHub Packages（npm.pkg.github.com）
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -91,6 +92,79 @@ jobs:
       - name: Publish to npm
         if: steps.npm_check.outputs.exists != 'true'
         run: npm publish --access public
+
+      - name: Setup Node.js for GitHub Packages
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@${{ github.repository_owner }}'
+
+      # GitHub npm registry requires scope == repository owner. Publish under @${owner}/<basename>
+      # while npmjs keeps the original package name (e.g. @mocrane/wecom).
+      - name: Publish to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          OWNER_LC="$(echo "${OWNER}" | tr '[:upper:]' '[:lower:]')"
+          ORIG_PKG=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          case "${ORIG_PKG}" in
+            @*/*) ;;
+            *)
+              echo "::error::Expected scoped package name, got: ${ORIG_PKG}"
+              exit 1
+              ;;
+          esac
+          BASE="${ORIG_PKG##*/}"
+          GH_PKG="@${OWNER_LC}/${BASE}"
+          REG="https://npm.pkg.github.com"
+          SPEC="${GH_PKG}@${VERSION}"
+
+          if npm view "${SPEC}" version --registry "${REG}" >/dev/null 2>&1; then
+            echo "::notice::${SPEC} already exists on GitHub Packages, skip."
+            exit 0
+          fi
+
+          cp -a package.json package.json.orig
+          restore_pkg() {
+            if [ -f package.json.orig ]; then
+              mv -f package.json.orig package.json
+            fi
+          }
+          trap restore_pkg EXIT
+
+          if [ "${ORIG_PKG}" != "${GH_PKG}" ]; then
+            echo "::notice::GitHub Packages publish as ${GH_PKG} (npmjs remains ${ORIG_PKG})."
+            node -e "const fs=require('fs');const n=process.argv[1];const j=JSON.parse(fs.readFileSync('package.json','utf8'));j.name=n;fs.writeFileSync('package.json',JSON.stringify(j,null,2)+'\n');" "${GH_PKG}"
+          fi
+
+          npm whoami --registry "${REG}"
+
+          set +e
+          npm publish --registry "${REG}" --access public 2>&1 | tee publish-gh.log
+          PUBLISH_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          if [ "${PUBLISH_EXIT}" -eq 0 ]; then
+            echo "::notice::Published ${SPEC} to GitHub Packages."
+            restore_pkg
+            trap - EXIT
+            exit 0
+          fi
+
+          if grep -Eqi 'cannot publish over the previously published versions|You cannot publish over the previously published versions|code E409|409 Conflict|already exists' publish-gh.log; then
+            echo "::notice::${SPEC} appears already published on GitHub Packages (detected from publish output), treating as skip."
+            restore_pkg
+            trap - EXIT
+            exit 0
+          fi
+
+          echo "::error::npm publish to GitHub Packages failed (exit ${PUBLISH_EXIT})."
+          exit "${PUBLISH_EXIT}"
 
       - name: Prepare release notes body
         id: notes
