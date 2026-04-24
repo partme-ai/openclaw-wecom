@@ -135,6 +135,8 @@ export type WecomConfig = {
     routing?: WecomRoutingConfig;
     /** 动态 Agent 配置 */
     dynamicAgents?: WecomDynamicAgentsConfig;
+    /** 知识库配置（全局默认值，account 级可覆盖） */
+    knowledge?: import('../knowledge/types.js').KnowledgeConfig;
 };
 
 /** Matrix 账号条目 */
@@ -143,4 +145,6 @@ export type WecomAccountConfig = {
     name?: string;
     bot?: WecomBotConfig;
     agent?: WecomAgentConfig;
+    /** 知识库配置覆盖（深度合并，store.sources 完全替换） */
+    knowledge?: import('../knowledge/types.js').DeepPartialKnowledgeConfig;
 };

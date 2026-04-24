@@ -125,6 +125,87 @@ const agentSchema = z.object({
  * @property groupEnabled - 群聊是否启用动态 Agent
  * @property adminUsers - 管理员列表（绕过动态路由）
  */
+/** 知识库来源配置 */
+const knowledgeSourceSchema = z.object({
+  docIds: z.array(z.string()).optional(),
+  docDirs: z.array(z.string()).optional(),
+  urls: z.array(z.string()).optional(),
+}).optional();
+
+/** 知识库 Embedding 配置 */
+const knowledgeEmbeddingSchema = z.object({
+  provider: z.string().optional(),
+  baseUrl: z.string().optional(),
+  apiKey: z.string().optional(),
+  model: z.string().optional(),
+  dimensions: z.number().optional(),
+}).optional();
+
+/** 知识库存储配置 */
+const knowledgeStoreSchema = z.object({
+  provider: z.string().optional(),
+  namespace: z.string().optional(),
+  url: z.string().optional(),
+  host: z.string().optional(),
+  port: z.number().optional(),
+  redisUri: z.string().optional(),
+  pineconeApiKey: z.string().optional(),
+  pineconeEnvironment: z.string().optional(),
+  pineconeIndexName: z.string().optional(),
+  chromaCollectionName: z.string().optional(),
+  weaviateCollectionName: z.string().optional(),
+  pgvectorIndexType: z.enum(['ivfflat', 'hnsw']).optional(),
+  pgvectorDistanceType: z.enum(['cosine', 'l2', 'inner_product']).optional(),
+  pgvectorDimensions: z.number().optional(),
+  qdrantCollectionName: z.string().optional(),
+  milvusCollectionName: z.string().optional(),
+  esIndexName: z.string().optional(),
+  dbPath: z.string().optional(),
+  sources: knowledgeSourceSchema,
+  extra: z.record(z.string(), z.unknown()).optional(),
+}).optional();
+
+/** 知识库检索配置 */
+const knowledgeRetrievalSchema = z.object({
+  strategy: z.enum(['hybrid', 'vector', 'keyword']).optional(),
+  topK: z.number().optional(),
+  minScore: z.number().min(0).max(1).optional(),
+  keywordBoost: z.boolean().optional(),
+}).optional();
+
+/** 知识库注入配置 */
+const knowledgeInjectionSchema = z.object({
+  position: z.enum(['system', 'user']).optional(),
+  template: z.string().optional(),
+  maxChunks: z.number().optional(),
+  maxTokens: z.number().optional(),
+}).optional();
+
+/** 知识库审核配置 */
+const knowledgeModerationSchema = z.object({
+  enabled: z.boolean().optional(),
+  rejectionMessage: z.string().optional(),
+}).optional();
+
+/** 知识库完整配置 */
+const knowledgeSchema = z.object({
+  enabled: z.boolean(),
+  embedding: knowledgeEmbeddingSchema,
+  store: knowledgeStoreSchema,
+  retrieval: knowledgeRetrievalSchema,
+  injection: knowledgeInjectionSchema,
+  moderation: knowledgeModerationSchema,
+}).optional();
+
+/** Account 级知识库覆盖配置（所有字段可选） */
+const accountKnowledgeSchema = z.object({
+  embedding: knowledgeEmbeddingSchema,
+  store: knowledgeStoreSchema,
+  retrieval: knowledgeRetrievalSchema,
+  injection: knowledgeInjectionSchema,
+  moderation: knowledgeModerationSchema,
+}).optional();
+
 const dynamicAgentsSchema = z.object({
     enabled: z.boolean().optional(),
     dmCreateAgent: z.boolean().optional(),
@@ -138,6 +219,7 @@ const accountSchema = z.object({
     name: z.string().optional(),
     bot: botSchema,
     agent: agentSchema,
+    knowledge: accountKnowledgeSchema,
 });
 
 /** 顶层 WeCom 配置 Schema */
@@ -151,6 +233,7 @@ export const WecomConfigSchema = bindToJsonSchema(z.object({
     network: networkSchema,
     routing: routingSchema,
     dynamicAgents: dynamicAgentsSchema,
+    knowledge: knowledgeSchema,
 }));
 
 export type WecomConfigInput = z.infer<typeof WecomConfigSchema>;

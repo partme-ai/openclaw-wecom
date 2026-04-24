@@ -5,6 +5,7 @@ import { handleWecomWebhookRequest } from "./src/monitor.js";
 import { setWecomRuntime } from "./src/runtime.js";
 import { wecomPlugin } from "./src/channel.js";
 import { createWeComMcpTool } from "./src/mcp/index.js";
+import { registerKnowledgeHooks } from "./src/knowledge/hooks.js";
 
 const plugin = {
   id: "wecom",
@@ -72,6 +73,9 @@ const plugin = {
         ].join("\n"),
       };
     });
+
+    // 注册知识库 RAG hooks（纯加法，不改动原有逻辑）
+    registerKnowledgeHooks(api);
   },
 };
 
