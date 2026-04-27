@@ -44,8 +44,12 @@
   },
   "dependencies": {
     "@wecom/aibot-node-sdk": "^1.0.2",
+    "better-sqlite3": "^12.9.0",
     "fast-xml-parser": "5.3.4",
     "file-type": "^18.7.0",
+    "ollama": "^0.6.3",
+    "tiktoken": "^1.0.0",
+    "@partme.ai/openclaw-knowledge": "file:../openclaw-knowledge",
     "undici": "^7.20.0",
     "zod": "^4.3.6"
   },

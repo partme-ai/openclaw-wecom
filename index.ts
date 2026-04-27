@@ -5,7 +5,9 @@ import { handleWecomWebhookRequest } from "./src/monitor.js";
 import { setWecomRuntime } from "./src/runtime.js";
 import { wecomPlugin } from "./src/channel.js";
 import { createWeComMcpTool } from "./src/mcp/index.js";
-import { registerKnowledgeHooks } from "./src/knowledge/hooks.js";
+import { registerKnowledgeHooks, createKnowledgeAddTool,
+  createKnowledgeQueryTool, createKnowledgeUpdateTool,
+  createKnowledgeDeleteTool } from "@partme.ai/openclaw-knowledge";
 
 const plugin = {
   id: "wecom",
@@ -21,6 +23,7 @@ const plugin = {
    * 3. 注册 Webhook HTTP 路由（推荐 /plugins/wecom/*，兼容 /wecom*）。
    * 4. 注册 wecom_mcp 工具 (MCP Streamable HTTP 调用)。
    * 5. 注入 MEDIA 指令提示词（仅 wecom 通道），指导 LLM 使用 MEDIA: 语法发送文件。
+   * 6. 注册知识库 RAG hooks + CRUD 工具。
    */
   register(api: OpenClawPluginApi) {
     // 初始化兼容层：确保 deleteAccountFromConfigSection 等函数在
@@ -61,7 +64,7 @@ const plugin = {
           "",
           "注意事项：",
           "- MEDIA: 必须在行首，后面紧跟文件路径（不是 URL）",
-          "- 如果路径中包含空格，可以用反引号包裹：MEDIA: `/path/to/my file.png`",
+          '- 如果路径中包含空格，可以用反引号包裹：MEDIA: `/path/to/my file.png`',
           "- 每个文件单独一行 MEDIA: 指令",
           "- 可以在 MEDIA: 指令前后附带文字说明",
           "",
@@ -75,7 +78,50 @@ const plugin = {
     });
 
     // 注册知识库 RAG hooks（纯加法，不改动原有逻辑）
-    registerKnowledgeHooks(api);
+    registerKnowledgeHooks(api, "channels.wecom.knowledge");
+
+    // 注册知识库 CRUD 工具组
+    api.registerTool(createKnowledgeAddTool);
+    api.registerTool(createKnowledgeQueryTool);
+    api.registerTool(createKnowledgeUpdateTool);
+    api.registerTool(createKnowledgeDeleteTool);
+
+    // 知识库使用指引：引导 AI 在适当时调用知识库工具。
+    // 仅在 knowledge.enabled 为 true 时注入，避免无关 context 浪费 token。
+    const knowledgeEnabled = !!(api.config as any)?.channels?.wecom?.knowledge?.enabled;
+    if (knowledgeEnabled) {
+      api.on("before_prompt_build", (_event, ctx) => {
+        if (ctx.channelId !== "wecom") return;
+        return {
+          systemPrompt: [
+            "【知识库 CRUD 工具】",
+            "本插件提供了 4 个知识库工具（企业微信本地 RAG），你可以根据用户指令调用：",
+            "",
+            "1. wecom_knowledge_add — 写入知识库",
+            "   支持三种操作（action 参数区分）：",
+            '   - store_text  → content（文本内容）',
+            '   - store_file  → filePath（文件路径，附件 URL file:// 前缀去掉得到本地路径）',
+            '   - store_summary → topic + text（主题+总结内容）',
+            '   用户说"保存这个"、"把这文件变成知识库"、"提炼到知识库"时使用。',
+            "",
+            "2. wecom_knowledge_query — 检索知识库",
+            '   参数：query（必填）、topK、strategy（vector/keyword/hybrid）、sourceId、namespace',
+            '   用户问"查一下知识库"、"搜索 XX 相关内容"时使用。',
+            "",
+            "3. wecom_knowledge_update — 更新知识库条目",
+            '   参数：sourceId（必填）、updateType（text/file/summary）、新内容',
+            '   用户说"更新一下之前的"、"修改 XX 条目"时使用。',
+            "",
+            "4. wecom_knowledge_delete — 删除知识库数据",
+            '   两种操作（action 参数）：delete_by_source（按 sourceId 删除）、clear（清空命名空间）',
+            '   用户说"删除 XX"、"清理知识库"时使用。',
+            "",
+            "文件路径：用户消息附件 URL 格式为 file:///绝对/路径/文件名，",
+            "去掉 file:// 前缀就是本地路径（如 file:///data/files/report.md → /data/files/report.md）。",
+          ].join("\n"),
+        };
+      });
+    }
   },
 };
 
