@@ -1608,7 +1608,7 @@ async function startAgentForStream(params: {
     }
   }
 
-  // 3. 如果是视频，尝试用 ffmpeg 提取第一帧作为图片，让 LLM 能"看到"视频内容
+  // 3. 如果是视频，尝试用 ffmpeg 提取第一帧作为图片，让 LLM 能\"看到\"视频内容
   let videoFirstFramePath: string | undefined;
   if (mediaPath && mediaType?.startsWith("video/")) {
     try {
