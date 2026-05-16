@@ -57,6 +57,24 @@ export type WecomBotInboundEvent = WecomBotInboundBase & {
     create_time?: number;
     event?: {
         eventtype?: string;
+        template_card_event?: {
+            card_type?: string;
+            event_key?: string;
+            task_id?: string;
+            selected_items?: {
+                selected_item?: Array<{
+                    question_key?: string;
+                    option_ids?: {
+                        option_id?: string[];
+                    };
+                }>;
+            };
+        };
+        /** 权限变更事件回调（如文档授权） */
+        auth_change_event?: {
+            /** 当前权限列表：1-新建和编辑文档；2-获取成员文档内容 */
+            auth_list?: number[];
+        };
         [key: string]: unknown;
     };
 };

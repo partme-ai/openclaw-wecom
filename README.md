@@ -85,6 +85,8 @@ openclaw plugins install @mocrane/wecom
 openclaw plugins enable wecom
 ```
 
+
+
 也可以通过命令行向导快速配置：
 
 ```bash

@@ -30,7 +30,7 @@ import type { EnterChatEvent, TemplateCardEventData } from "@wecom/aibot-node-sd
 import type { ResolvedBotAccount, WecomNetworkConfig, WecomBotInboundMessage } from "./types/index.js";
 import type { WecomRuntimeEnv, WecomWebhookTarget, StreamState } from "./monitor/types.js";
 import { shouldProcessBotInboundMessage, buildInboundBody } from "./monitor.js";
-import { monitorState } from "./monitor/state.js";
+import { monitorState, setWeComWebSocket, deleteWeComWebSocket } from "./monitor/state.js";
 import { getWecomRuntime } from "./runtime.js";
 import { fetchAndSaveMcpConfig } from "./mcp-config.js";
 
@@ -447,6 +447,8 @@ export function startWsClient(params: StartWsClientParams): () => void {
     });
 
     wsClients.set(accountId, wsClient);
+    // 同步到 monitor/state 供 MCP 拦截器等模块使用
+    setWeComWebSocket(accountId, wsClient);
 
     // 构建 WecomWebhookTarget 以复用 monitor 管线
     const target: WecomWebhookTarget = {
@@ -500,4 +502,6 @@ export function stopWsClient(accountId: string): void {
         existing.disconnect();
         wsClients.delete(accountId);
     }
+    // 同步清理 monitor/state 中的 WSClient 引用
+    deleteWeComWebSocket(accountId);
 }

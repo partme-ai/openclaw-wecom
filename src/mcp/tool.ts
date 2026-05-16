@@ -13,8 +13,10 @@
  *   wecom_mcp call contact getContact '{}'
  */
 
-import { sendJsonRpc, clearCategoryCache, type McpToolInfo } from "./transport.js";
+import { sendJsonRpc, type McpToolInfo } from "./transport.js";
 import { cleanSchemaForGemini } from "./schema.js";
+import { resolveBeforeCall, runAfterCall } from "./interceptors/index.js";
+import type { CallContext } from "./interceptors/types.js";
 
 // ============================================================================
 // 类型定义
@@ -158,10 +160,52 @@ const parseArgs = (args: string | Record<string, unknown> | undefined): Record<s
 // 工具定义 & 导出
 // ============================================================================
 
+interface CreateWeComMcpToolOptions {
+  requesterUserId?: string;
+  accountId?: string;
+  chatId?: string;
+  chatType?: "single" | "group";
+}
+
 /**
  * 创建 wecom_mcp Agent Tool 定义
  */
-export function createWeComMcpTool() {
+export function createWeComMcpTool(options: CreateWeComMcpToolOptions = {}) {
+  const { requesterUserId, accountId, chatId, chatType } = options;
+
+  const _handleList = async (category: string): Promise<unknown> => {
+    const ctx: CallContext = { category, method: "", args: {}, requesterUserId, accountId, chatId, chatType };
+    const result = await sendJsonRpc(category, "tools/list", undefined, {
+      requesterUserId, accountId,
+    }) as { tools?: McpToolInfo[] } | undefined;
+    const tools = result?.tools ?? [];
+    if (tools.length === 0) {
+      return { message: `品类 "${category}" 下暂无可用工具`, tools: [] };
+    }
+    return {
+      category, count: tools.length,
+      tools: tools.map((t) => ({
+        name: t.name, description: t.description ?? "",
+        inputSchema: t.inputSchema ? cleanSchemaForGemini(t.inputSchema) : undefined,
+      })),
+    };
+  };
+
+  const _handleCall = async (category: string, method: string, args: Record<string, unknown>): Promise<unknown> => {
+    const ctx: CallContext = { category, method, args, requesterUserId, accountId, chatId, chatType };
+    const callStart = performance.now();
+    // 1. 收集拦截器 beforeCall 配置
+    const { options: beforeOpts, args: resolvedArgs } = await resolveBeforeCall(ctx);
+    const finalArgs = resolvedArgs ?? args;
+    const requestOpts = { ...beforeOpts, ...(requesterUserId ? { requesterUserId } : {}), ...(accountId ? { accountId } : {}) };
+    // 2. 执行 MCP 调用
+    const result = await sendJsonRpc(category, "tools/call", { name: method, arguments: finalArgs }, requestOpts);
+    // 3. 管道式执行 afterCall 拦截器
+    const finalResult = await runAfterCall(ctx, result);
+    console.log(`[mcp] ${category}/${method} 耗时: ${(performance.now() - callStart).toFixed(1)}ms`);
+    return finalResult;
+  };
+
   return {
     name: "wecom_mcp",
     label: "企业微信 MCP 工具",
@@ -207,13 +251,13 @@ export function createWeComMcpTool() {
       try {
         switch (p.action) {
           case "list":
-            return textResult(await handleList(p.category));
+            return textResult(await _handleList(p.category));
           case "call": {
             if (!p.method) {
               return textResult({ error: "action 为 call 时必须提供 method 参数" });
             }
             const args = parseArgs(p.args);
-            return textResult(await handleCall(p.category, p.method, args));
+            return textResult(await _handleCall(p.category, p.method, args));
           }
           default:
             return textResult({ error: `未知操作类型: ${String(p.action)}，支持 list 和 call` });

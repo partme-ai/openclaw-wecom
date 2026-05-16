@@ -9,12 +9,14 @@ export * from "./constants.js";
 export type {
     WecomAccountConfig,
     WecomDmConfig,
+    WecomGroupConfig,
     WecomMediaConfig,
     WecomNetworkConfig,
     WecomRoutingConfig,
     WecomBotConfig,
     WecomAgentConfig,
     WecomConfig,
+    WecomDynamicAgentsConfig,
 } from "./config.js";
 
 // 账号类型

@@ -68,6 +68,12 @@ export type WecomBotConfig = {
 
     // --- 长链接模式 (WebSocket) ---
 
+    /** WebSocket 服务器地址，默认 wss://openws.work.weixin.qq.com */
+    websocketUrl?: string;
+    /** 是否发送"思考中"消息，默认为 true */
+    sendThinkingMessage?: boolean;
+    /** 额外允许访问的本地媒体路径白名单（支持 ~ 表示 home 目录） */
+    mediaLocalRoots?: string[];
     /** 连接模式：webhook（默认）或 websocket */
     connectionMode?: 'webhook' | 'websocket';
     /** 机器人 BotID（websocket 模式必填，企微后台获取） */
@@ -95,6 +101,12 @@ export type WecomAgentConfig = {
     welcomeText?: string;
     /** DM 策略 */
     dm?: WecomDmConfig;
+};
+
+/** 企业微信群组配置 */
+export type WecomGroupConfig = {
+  /** 群组内发送者白名单（仅列表中的成员消息会被处理） */
+  allowFrom?: Array<string | number>;
 };
 
 /** 动态 Agent 配置 */
@@ -143,4 +155,16 @@ export type WecomAccountConfig = {
     name?: string;
     bot?: WecomBotConfig;
     agent?: WecomAgentConfig;
+    /** WebSocket 服务器地址 */
+    websocketUrl?: string;
+    /** 是否发送"思考中"消息，默认为 true */
+    sendThinkingMessage?: boolean;
+    /** 额外允许访问的本地媒体路径白名单 */
+    mediaLocalRoots?: string[];
+    /** 群组访问策略："open" = 允许所有群组，"allowlist" = 仅允许 groupAllowFrom 中的群组，"disabled" = 禁用群组消息 */
+    groupPolicy?: "open" | "allowlist" | "disabled";
+    /** 群组白名单（仅 groupPolicy="allowlist" 时生效） */
+    groupAllowFrom?: Array<string | number>;
+    /** 每个群组的详细配置（如群组内发送者白名单） */
+    groups?: Record<string, WecomGroupConfig>;
 };
