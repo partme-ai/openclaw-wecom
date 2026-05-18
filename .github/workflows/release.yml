@@ -9,8 +9,6 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # 🌟 必须与 npm 设置的 Environment 一致
-    environment: release
     permissions:
       contents: write # 发布 Release
       id-token: write # 获取 OIDC 身份令牌
@@ -83,7 +81,7 @@ jobs:
           fi
 
       - name: Install Dependencies
-        run: npm install --legacy-peer-deps || npm install
+        run: npm install
 
       - name: Build Plugin
         run: npm run build --if-present
