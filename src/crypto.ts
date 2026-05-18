@@ -57,11 +57,11 @@ function sha1Hex(input: string): string {
 }
 
 /**
- * **computeWecomMsgSignature (计算消息签名)**
+ * **computeWeComMsgSignature (计算消息签名)**
  * 
  * 算法：sha1(sort(token, timestamp, nonce, encrypt_msg))
  */
-export function computeWecomMsgSignature(params: {
+export function computeWeComMsgSignature(params: {
   token: string;
   timestamp: string;
   nonce: string;
@@ -74,18 +74,18 @@ export function computeWecomMsgSignature(params: {
 }
 
 /**
- * **verifyWecomSignature (验证消息签名)**
+ * **verifyWeComSignature (验证消息签名)**
  * 
  * 比较计算出的签名与企业微信传入的签名是否一致。
  */
-export function verifyWecomSignature(params: {
+export function verifyWeComSignature(params: {
   token: string;
   timestamp: string;
   nonce: string;
   encrypt: string;
   signature: string;
 }): boolean {
-  const expected = computeWecomMsgSignature({
+  const expected = computeWeComMsgSignature({
     token: params.token,
     timestamp: params.timestamp,
     nonce: params.nonce,
@@ -95,7 +95,7 @@ export function verifyWecomSignature(params: {
 }
 
 /**
- * **decryptWecomEncrypted (解密企业微信消息)**
+ * **decryptWeComEncrypted (解密企业微信消息)**
  * 
  * 将企业微信的 AES 加密包解密为明文。
  * 流程：
@@ -105,7 +105,7 @@ export function verifyWecomSignature(params: {
  * 4. 拆解协议包结构: [16字节随机串][4字节长度][消息体][接收者ID]。
  * 5. 校验接收者ID (ReceiveId)。
  */
-export function decryptWecomEncrypted(params: {
+export function decryptWeComEncrypted(params: {
   encodingAESKey: string;
   receiveId?: string;
   encrypt: string;
@@ -145,7 +145,7 @@ export function decryptWecomEncrypted(params: {
 }
 
 /**
- * **encryptWecomPlaintext (加密回复消息)**
+ * **encryptWeComPlaintext (加密回复消息)**
  * 
  * 将明文消息打包为企业微信的加密格式。
  * 流程：
@@ -154,7 +154,7 @@ export function decryptWecomEncrypted(params: {
  * 3. AES-CBC 加密。
  * 4. 转 Base64。
  */
-export function encryptWecomPlaintext(params: {
+export function encryptWeComPlaintext(params: {
   encodingAESKey: string;
   receiveId?: string;
   plaintext: string;

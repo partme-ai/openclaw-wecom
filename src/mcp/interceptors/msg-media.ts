@@ -11,7 +11,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { MEDIA_DOWNLOAD_TIMEOUT_MS } from "../transport.js";
-import { getWecomRuntime } from "../../runtime.js";
+import { getWeComRuntime } from "../../runtime.js";
 import { detectMime } from "../../openclaw-compat.js";
 import type { CallInterceptor, CallContext } from "./types.js";
 
@@ -97,7 +97,7 @@ async function interceptMediaResponse(result: unknown): Promise<unknown> {
   // 此处显式放宽到 20MB 以支持大文件下载。
   const INBOUND_MAX_BYTES = 20 * 1024 * 1024; // 20MB
 
-  const core = getWecomRuntime();
+  const core = getWeComRuntime();
   const saved = await core.channel.media.saveMediaBuffer(
     buffer,
     contentType,

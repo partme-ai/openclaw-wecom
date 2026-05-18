@@ -1,10 +1,10 @@
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
-import type { WecomAgentConfig, WecomBotConfig } from "../types/index.js";
+import type { WeComAgentConfig, WeComBotConfig } from "../types/index.js";
 
-type WecomCommandAuthAccountConfig = Pick<WecomBotConfig, "dm"> | Pick<WecomAgentConfig, "dm">;
+type WeComCommandAuthAccountConfig = Pick<WeComBotConfig, "dm"> | Pick<WeComAgentConfig, "dm">;
 
-function normalizeWecomAllowFromEntry(raw: string): string {
+function normalizeWeComAllowFromEntry(raw: string): string {
   return raw
     .trim()
     .toLowerCase()
@@ -13,18 +13,18 @@ function normalizeWecomAllowFromEntry(raw: string): string {
     .replace(/^userid:/, "");
 }
 
-function isWecomSenderAllowed(senderUserId: string, allowFrom: string[]): boolean {
-  const list = allowFrom.map((entry) => normalizeWecomAllowFromEntry(entry)).filter(Boolean);
+function isWeComSenderAllowed(senderUserId: string, allowFrom: string[]): boolean {
+  const list = allowFrom.map((entry) => normalizeWeComAllowFromEntry(entry)).filter(Boolean);
   if (list.includes("*")) return true;
-  const normalizedSender = normalizeWecomAllowFromEntry(senderUserId);
+  const normalizedSender = normalizeWeComAllowFromEntry(senderUserId);
   if (!normalizedSender) return false;
   return list.includes(normalizedSender);
 }
 
-export async function resolveWecomCommandAuthorization(params: {
+export async function resolveWeComCommandAuthorization(params: {
   core: PluginRuntime;
   cfg: OpenClawConfig;
-  accountConfig: WecomCommandAuthAccountConfig;
+  accountConfig: WeComCommandAuthAccountConfig;
   rawBody: string;
   senderUserId: string;
 }): Promise<{
@@ -51,8 +51,8 @@ export async function resolveWecomCommandAuthorization(params: {
   // - pairing: treated the same as allowlist for WeCom (since pairing CLI is unsupported).
   const effectiveAllowFrom = dmPolicy === "open" ? ["*"] : configAllowFrom;
 
-  const senderAllowed = isWecomSenderAllowed(senderUserId, effectiveAllowFrom);
-  const allowAllConfigured = effectiveAllowFrom.some((entry) => normalizeWecomAllowFromEntry(entry) === "*");
+  const senderAllowed = isWeComSenderAllowed(senderUserId, effectiveAllowFrom);
+  const allowAllConfigured = effectiveAllowFrom.some((entry) => normalizeWeComAllowFromEntry(entry) === "*");
   const authorizerConfigured = allowAllConfigured || effectiveAllowFrom.length > 0;
   const useAccessGroups = cfg.commands?.useAccessGroups !== false;
 
@@ -73,7 +73,7 @@ export async function resolveWecomCommandAuthorization(params: {
   };
 }
 
-export function buildWecomUnauthorizedCommandPrompt(params: {
+export function buildWeComUnauthorizedCommandPrompt(params: {
   senderUserId: string;
   dmPolicy: "pairing" | "allowlist" | "open" | "disabled";
   scope: "bot" | "agent";

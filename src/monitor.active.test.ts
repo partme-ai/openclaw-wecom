@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { sendActiveMessage, handleWecomWebhookRequest, registerWecomWebhookTarget } from "./monitor.js";
+import { sendActiveMessage, handleWeComWebhookRequest, registerWeComWebhookTarget } from "./monitor.js";
 import * as cryptoHelpers from "./crypto.js";
 import * as runtime from "./runtime.js";
 import * as agentApi from "./agent/api-client.js";
@@ -68,14 +68,14 @@ describe("Monitor Active Features", () => {
         });
 
         // Mock Crypto Helpers
-        // Wespy on verifyWecomSignature to always pass
-        vi.spyOn(cryptoHelpers, "verifyWecomSignature").mockReturnValue(true);
+        // Wespy on verifyWeComSignature to always pass
+        vi.spyOn(cryptoHelpers, "verifyWeComSignature").mockReturnValue(true);
 
-        // We spy on decryptWecomEncrypted to return our mock plaintext
+        // We spy on decryptWeComEncrypted to return our mock plaintext
         // Note: For this to work despite direct import in monitor.ts, we rely on Vitest's
         // module mocking capabilities or the fact that * exports might be live bindings.
         // If this fails, we will know.
-        vi.spyOn(cryptoHelpers, "decryptWecomEncrypted").mockImplementation((opts) => {
+        vi.spyOn(cryptoHelpers, "decryptWeComEncrypted").mockImplementation((opts) => {
             return JSON.stringify({
                 msgid: `test-msg-id-${msgSeq}`,
                 aibotid: "bot-1",
@@ -120,9 +120,9 @@ describe("Monitor Active Features", () => {
             logging: { shouldLogVerbose: () => false }
         };
 
-        vi.spyOn(runtime, "getWecomRuntime").mockReturnValue(mockCore);
+        vi.spyOn(runtime, "getWeComRuntime").mockReturnValue(mockCore);
 
-        unregisterTarget = registerWecomWebhookTarget({
+        unregisterTarget = registerWeComWebhookTarget({
             account: { accountId: "default", enabled: true, configured: true, token: "T", encodingAESKey: validKey, receiveId: "R", config: {} as any },
             config: {
                 channels: {
@@ -153,7 +153,7 @@ describe("Monitor Active Features", () => {
     it("should protect <think> tags from table conversion", async () => {
         const req = createMockRequest({ encrypt: "mock-encrypt" });
         const res = createMockResponse();
-        await handleWecomWebhookRequest(req, res);
+        await handleWeComWebhookRequest(req, res);
 
         // The WeCom monitor debounces inbound messages before starting the agent.
         // `flushPending` triggers async agent start without awaiting it, so give the
@@ -179,11 +179,11 @@ describe("Monitor Active Features", () => {
         const res = createMockResponse();
 
         // We use a real key but mocked randomBytes.
-        // However, `handleWecomWebhookRequest` calls `buildEncryptedJsonReply` -> `encryptWecomPlaintext`.
-        // `encryptWecomPlaintext` uses the key. Since it's valid, it should work fine.
-        // We don't verify the OUTPUT of handleWecomWebhookRequest, just that it runs and sets up state.
+        // However, `handleWeComWebhookRequest` calls `buildEncryptedJsonReply` -> `encryptWeComPlaintext`.
+        // `encryptWeComPlaintext` uses the key. Since it's valid, it should work fine.
+        // We don't verify the OUTPUT of handleWeComWebhookRequest, just that it runs and sets up state.
 
-        await handleWecomWebhookRequest(req, res);
+        await handleWeComWebhookRequest(req, res);
 
         const streamId = Buffer.alloc(16, 0x11).toString("hex");
 
@@ -210,7 +210,7 @@ describe("Monitor Active Features", () => {
 
         const req = createMockRequest({ encrypt: "mock-encrypt" });
         const res = createMockResponse();
-        await handleWecomWebhookRequest(req, res);
+        await handleWeComWebhookRequest(req, res);
 
         await vi.advanceTimersByTimeAsync(600);
         await Promise.resolve();

@@ -12,7 +12,7 @@ vi.mock("../http.js", () => ({
 }));
 
 vi.mock("../config/index.js", () => ({
-  resolveWecomEgressProxyUrlFromNetwork: resolveProxyMock,
+  resolveWeComEgressProxyUrlFromNetwork: resolveProxyMock,
 }));
 
 import { uploadMedia } from "./api-client.js";

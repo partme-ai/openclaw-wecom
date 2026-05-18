@@ -11,7 +11,7 @@
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import type { WSClient, WsFrame, TemplateCard } from "@wecom/aibot-node-sdk";
 import type { MessageBody } from "./message-parser.js";
-import type { ResolvedWeComAccount } from "./utils.js";
+import type { ResolvedWeComAccount } from "./types/account.js";
 import type { MessageState, ExtractedTemplateCard } from "./interface.js";
 import { extractTemplateCards } from "./template-card-parser.js";
 import {

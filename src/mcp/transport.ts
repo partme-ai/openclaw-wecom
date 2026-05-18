@@ -468,21 +468,6 @@ async function parseSseResponse(response: Response): Promise<unknown> {
 // 公共 API
 // ============================================================================
 
-/**
- * 清理指定品类的所有 MCP 缓存（配置、会话、无状态标记）
- *
- * 当 MCP Server 返回特定错误码时调用，确保下次请求重新拉取配置并重建会话。
- *
- * @param category - MCP 品类名称
- */
-export function clearCategoryCache(category: string): void {
-  console.log(`${LOG_TAG} 清理缓存 (category="${category}")`);
-  mcpConfigCache.delete(category);
-  mcpSessionCache.delete(category);
-  statelessCategories.delete(category);
-  inflightInitRequests.delete(category);
-}
-
 /** sendJsonRpc 的可选配置 */
 export interface SendJsonRpcOptions {
   /** 自定义超时（毫秒） */

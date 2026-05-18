@@ -1,12 +1,12 @@
-import type { ChannelOutboundAdapter, ChannelOutboundContext } from "openclaw/plugin-sdk";
+import type { ChannelOutboundAdapter, ChannelOutboundContext } from "openclaw/plugin-sdk/channel-contract";
 
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
-import { resolveWecomAccount, resolveWecomAccountConflict, resolveWecomAccounts } from "./config/index.js";
-import { getWecomRuntime } from "./runtime.js";
+import { resolveWeComAccount, resolveWeComAccountConflict, resolveWeComAccounts } from "./config/index.js";
+import { getWeComRuntime } from "./runtime.js";
 import { getWsClient, waitForWsConnection } from "./ws-adapter.js";
 import { uploadAndSendMediaBuffer } from "./media/index.js";
 
-import { resolveWecomTarget } from "./target.js";
+import { resolveWeComTarget } from "./target.js";
 
 // ─── MIME 类型映射表（扩展名 → Content-Type）──────────────────────────
 
@@ -65,9 +65,9 @@ function resolveAgentConfigOrThrow(params: {
   cfg: ChannelOutboundContext["cfg"];
   accountId?: string | null;
 }) {
-  const resolvedAccounts = resolveWecomAccounts(params.cfg);
+  const resolvedAccounts = resolveWeComAccounts(params.cfg);
   const conflictAccountId = params.accountId?.trim() || resolvedAccounts.defaultAccountId;
-  const conflict = resolveWecomAccountConflict({
+  const conflict = resolveWeComAccountConflict({
     cfg: params.cfg,
     accountId: conflictAccountId,
   });
@@ -83,7 +83,7 @@ function resolveAgentConfigOrThrow(params: {
       );
     }
   }
-  const account = resolveWecomAccount({
+  const account = resolveWeComAccount({
     cfg: params.cfg,
     accountId: params.accountId,
   }).agent;
@@ -106,9 +106,9 @@ export const wecomOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
   chunkerMode: "text",
   textChunkLimit: 20480,
-  chunker: (text, limit) => {
+  chunker: (text: string, limit: number) => {
     try {
-      return getWecomRuntime().channel.text.chunkText(text, limit);
+      return getWeComRuntime().channel.text.chunkText(text, limit);
     } catch {
       return [text];
     }
@@ -118,11 +118,11 @@ export const wecomOutbound: ChannelOutboundAdapter = {
 
     // ── Bot WebSocket outbound 独立路径 ──
     // WS Bot 完全独立收发，不与 Agent 组成双模，失败时直接抛错而非 fallthrough
-    const resolvedAccount = resolveWecomAccount({ cfg, accountId });
+    const resolvedAccount = resolveWeComAccount({ cfg, accountId });
     const botAccount = resolvedAccount.bot;
     if (botAccount?.connectionMode === 'websocket' && botAccount.configured) {
       const wsClient = getWsClient(botAccount.accountId);
-      const wsTarget = resolveWecomTarget(to);
+      const wsTarget = resolveWeComTarget(to);
       const chatid = wsTarget?.touser || wsTarget?.chatid;
 
       // 如果目标是 Agent 会话（wecom-agent:），跳过 WS Bot，走 Agent outbound
@@ -154,7 +154,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
 
     // ── Agent outbound（Webhook Bot 双模 / Agent 独立）──
     const agent = resolveAgentConfigOrThrow({ cfg, accountId });
-    const target = resolveWecomTarget(to);
+    const target = resolveWeComTarget(to);
     if (!target) {
       throw new Error("WeCom outbound requires a target (userid, partyid, tagid or chatid).");
     }
@@ -225,13 +225,13 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     }
 
     // ── Bot WebSocket 模式 ──
-    const resolvedAccount = resolveWecomAccount({ cfg, accountId });
+    const resolvedAccount = resolveWeComAccount({ cfg, accountId });
     const botAccount = resolvedAccount.bot;
     if (botAccount?.connectionMode === "websocket" && botAccount.configured) {
       const rawTo = typeof to === "string" ? to.trim().toLowerCase() : "";
       // 如果目标是 Agent 会话（wecom-agent:），跳过 WS Bot，走 Agent outbound
       if (!rawTo.startsWith("wecom-agent:")) {
-        const wsTarget = resolveWecomTarget(to);
+        const wsTarget = resolveWeComTarget(to);
         const chatId = wsTarget?.touser || wsTarget?.chatid;
         if (!chatId) {
           throw new Error(`[wecom-outbound] Bot WS sendMedia 无法解析目标 chatId (to=${String(to)})`);
@@ -283,7 +283,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
 
     // ── Agent 模式 ──
     const agent = resolveAgentConfigOrThrow({ cfg, accountId });
-    const target = resolveWecomTarget(to);
+    const target = resolveWeComTarget(to);
     if (!target) {
       throw new Error("WeCom outbound requires a target (userid, partyid, tagid or chatid).");
     }

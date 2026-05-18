@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
-import { resolveWecomFailClosedOnDefaultRoute, shouldRejectWecomDefaultRoute } from "./routing.js";
+import { resolveWeComFailClosedOnDefaultRoute, shouldRejectWeComDefaultRoute } from "./routing.js";
 
-describe("resolveWecomFailClosedOnDefaultRoute", () => {
+describe("resolveWeComFailClosedOnDefaultRoute", () => {
     it("defaults to true in matrix mode", () => {
         const cfg: OpenClawConfig = {
             channels: {
@@ -15,7 +15,7 @@ describe("resolveWecomFailClosedOnDefaultRoute", () => {
                 },
             },
         } as OpenClawConfig;
-        expect(resolveWecomFailClosedOnDefaultRoute(cfg)).toBe(true);
+        expect(resolveWeComFailClosedOnDefaultRoute(cfg)).toBe(true);
     });
 
     it("defaults to false in legacy mode", () => {
@@ -27,7 +27,7 @@ describe("resolveWecomFailClosedOnDefaultRoute", () => {
                 },
             },
         } as OpenClawConfig;
-        expect(resolveWecomFailClosedOnDefaultRoute(cfg)).toBe(false);
+        expect(resolveWeComFailClosedOnDefaultRoute(cfg)).toBe(false);
     });
 
     it("respects explicit override", () => {
@@ -40,11 +40,11 @@ describe("resolveWecomFailClosedOnDefaultRoute", () => {
                 },
             },
         } as OpenClawConfig;
-        expect(resolveWecomFailClosedOnDefaultRoute(cfg)).toBe(true);
+        expect(resolveWeComFailClosedOnDefaultRoute(cfg)).toBe(true);
     });
 });
 
-describe("shouldRejectWecomDefaultRoute", () => {
+describe("shouldRejectWeComDefaultRoute", () => {
     const matrixCfg = {
         channels: {
             wecom: {
@@ -58,7 +58,7 @@ describe("shouldRejectWecomDefaultRoute", () => {
 
     it("rejects default route in matrix mode when dynamic agent is disabled", () => {
         expect(
-            shouldRejectWecomDefaultRoute({
+            shouldRejectWeComDefaultRoute({
                 cfg: matrixCfg,
                 matchedBy: "default",
                 useDynamicAgent: false,
@@ -68,7 +68,7 @@ describe("shouldRejectWecomDefaultRoute", () => {
 
     it("does not reject when route already matched a binding", () => {
         expect(
-            shouldRejectWecomDefaultRoute({
+            shouldRejectWeComDefaultRoute({
                 cfg: matrixCfg,
                 matchedBy: "binding.account",
                 useDynamicAgent: false,
@@ -78,7 +78,7 @@ describe("shouldRejectWecomDefaultRoute", () => {
 
     it("does not reject when dynamic agent routing is enabled", () => {
         expect(
-            shouldRejectWecomDefaultRoute({
+            shouldRejectWeComDefaultRoute({
                 cfg: matrixCfg,
                 matchedBy: "default",
                 useDynamicAgent: true,

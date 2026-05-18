@@ -9,10 +9,10 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import { createRuntimeEnv } from "../../test-utils/runtime-env.js";
-import { computeWecomMsgSignature, encryptWecomPlaintext } from "./crypto.js";
+import { computeWeComMsgSignature, encryptWeComPlaintext } from "./crypto.js";
 import { wecomPlugin } from "./channel.js";
-import { handleWecomWebhookRequest } from "./monitor.js";
-import type { ResolvedWecomAccount } from "./types/index.js";
+import { handleWeComWebhookRequest } from "./monitor.js";
+import type { ResolvedWeComAccount } from "./types/index.js";
 
 function createMockRequest(params: {
   method: "GET" | "POST";
@@ -58,14 +58,14 @@ function createCtx(params: {
   cfg: OpenClawConfig;
   accountId?: string;
   abortController: AbortController;
-}): ChannelGatewayContext<ResolvedWecomAccount> & {
+}): ChannelGatewayContext<ResolvedWeComAccount> & {
   statusUpdates: Array<Partial<ChannelAccountSnapshot>>;
 } {
   const accountId = params.accountId ?? "default";
   const account = wecomPlugin.config.resolveAccount(
     params.cfg,
     accountId,
-  ) as ResolvedWecomAccount;
+  ) as ResolvedWeComAccount;
   const snapshot: ChannelAccountSnapshot = {
     accountId,
     configured: true,
@@ -108,7 +108,7 @@ function createLegacyBotConfig(params: {
   } as OpenClawConfig;
 }
 
-async function sendWecomGetVerify(params: {
+async function sendWeComGetVerify(params: {
   path: string;
   token: string;
   encodingAESKey: string;
@@ -116,12 +116,12 @@ async function sendWecomGetVerify(params: {
 }): Promise<{ handled: boolean; status: number; body: string }> {
   const timestamp = "1700000000";
   const nonce = "nonce";
-  const echostr = encryptWecomPlaintext({
+  const echostr = encryptWeComPlaintext({
     encodingAESKey: params.encodingAESKey,
     receiveId: params.receiveId,
     plaintext: "ping",
   });
-  const msgSignature = computeWecomMsgSignature({
+  const msgSignature = computeWeComMsgSignature({
     token: params.token,
     timestamp,
     nonce,
@@ -136,7 +136,7 @@ async function sendWecomGetVerify(params: {
       `&echostr=${encodeURIComponent(echostr)}`,
   });
   const res = createMockResponse();
-  const handled = await handleWecomWebhookRequest(req, res);
+  const handled = await handleWeComWebhookRequest(req, res);
   return {
     handled,
     status: res._getStatusCode(),
@@ -178,7 +178,7 @@ describe("wecomPlugin gateway lifecycle", () => {
     const startPromise = wecomPlugin.gateway!.startAccount!(ctx);
     await Promise.resolve();
 
-    const activeLegacyRoute = await sendWecomGetVerify({
+    const activeLegacyRoute = await sendWeComGetVerify({
       path: "/wecom/bot",
       token,
       encodingAESKey,
@@ -188,7 +188,7 @@ describe("wecomPlugin gateway lifecycle", () => {
     expect(activeLegacyRoute.status).toBe(200);
     expect(activeLegacyRoute.body).toBe("ping");
 
-    const activePluginRoute = await sendWecomGetVerify({
+    const activePluginRoute = await sendWeComGetVerify({
       path: "/plugins/wecom/bot",
       token,
       encodingAESKey,
@@ -201,7 +201,7 @@ describe("wecomPlugin gateway lifecycle", () => {
     abortController.abort();
     await startPromise;
 
-    const inactiveLegacyRoute = await sendWecomGetVerify({
+    const inactiveLegacyRoute = await sendWeComGetVerify({
       path: "/wecom/bot",
       token,
       encodingAESKey,
@@ -209,7 +209,7 @@ describe("wecomPlugin gateway lifecycle", () => {
     });
     expect(inactiveLegacyRoute.handled).toBe(false);
 
-    const inactivePluginRoute = await sendWecomGetVerify({
+    const inactivePluginRoute = await sendWeComGetVerify({
       path: "/plugins/wecom/bot",
       token,
       encodingAESKey,

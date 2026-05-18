@@ -3,7 +3,7 @@
  */
 
 /** DM 策略配置 - 与其他渠道保持一致，仅用 allowFrom */
-export type WecomDmConfig = {
+export type WeComDmConfig = {
     /** DM 策略: 'open' 允许所有人, 'pairing' 需要配对, 'allowlist' 仅允许列表, 'disabled' 禁用 */
     policy?: 'open' | 'pairing' | 'allowlist' | 'disabled';
     /** 允许的用户列表，为空表示允许所有人 */
@@ -11,7 +11,7 @@ export type WecomDmConfig = {
 };
 
 /** 媒体处理配置 */
-export type WecomMediaConfig = {
+export type WeComMediaConfig = {
     tempDir?: string;
     retentionHours?: number;
     cleanupOnStart?: boolean;
@@ -19,7 +19,7 @@ export type WecomMediaConfig = {
 };
 
 /** 网络配置 */
-export type WecomNetworkConfig = {
+export type WeComNetworkConfig = {
     timeoutMs?: number;
     retries?: number;
     retryDelayMs?: number;
@@ -31,7 +31,7 @@ export type WecomNetworkConfig = {
 };
 
 /** 路由行为配置 */
-export type WecomRoutingConfig = {
+export type WeComRoutingConfig = {
     /**
      * 当路由未命中 bindings（matchedBy=default）时是否拒绝继续处理。
      * - true: fail-closed（推荐于多账号）
@@ -44,7 +44,7 @@ export type WecomRoutingConfig = {
  * Bot 模式配置 (智能体)
  * 用于接收 JSON 格式回调 + 流式回复
  */
-export type WecomBotConfig = {
+export type WeComBotConfig = {
     /** 智能机器人 ID（用于 Matrix 模式二次身份确认，webhook 模式） */
     aibotid?: string;
     /** 回调 Token (企微后台生成，webhook 模式必填) */
@@ -64,7 +64,7 @@ export type WecomBotConfig = {
     /** 欢迎语 */
     welcomeText?: string;
     /** DM 策略 */
-    dm?: WecomDmConfig;
+    dm?: WeComDmConfig;
 
     // --- 长链接模式 (WebSocket) ---
 
@@ -86,7 +86,7 @@ export type WecomBotConfig = {
  * Agent 模式配置 (自建应用)
  * 用于接收 XML 格式回调 + API 主动发送
  */
-export type WecomAgentConfig = {
+export type WeComAgentConfig = {
     /** 企业 ID */
     corpId: string;
     /** 应用 Secret */
@@ -100,17 +100,17 @@ export type WecomAgentConfig = {
     /** 欢迎语 */
     welcomeText?: string;
     /** DM 策略 */
-    dm?: WecomDmConfig;
+    dm?: WeComDmConfig;
 };
 
 /** 企业微信群组配置 */
-export type WecomGroupConfig = {
+export type WeComGroupConfig = {
   /** 群组内发送者白名单（仅列表中的成员消息会被处理） */
   allowFrom?: Array<string | number>;
 };
 
 /** 动态 Agent 配置 */
-export type WecomDynamicAgentsConfig = {
+export type WeComDynamicAgentsConfig = {
     /** 是否启用动态 Agent */
     enabled?: boolean;
     /** 私聊：是否为每个用户创建独立 Agent */
@@ -125,36 +125,40 @@ export type WecomDynamicAgentsConfig = {
  * 顶层 WeCom 配置
  * 通过 bot / agent 字段隐式指定模式
  */
-export type WecomConfig = {
+export type WeComConfig = {
     /** 是否启用 */
     enabled?: boolean;
     /** Bot 模式配置 (智能体) */
-    bot?: WecomBotConfig;
+    bot?: WeComBotConfig;
     /** Agent 模式配置 (自建应用) */
-    agent?: WecomAgentConfig;
+    agent?: WeComAgentConfig;
     /**
      * 多账号配置（每个账号可包含 bot + agent，作为一组）。
      * accountId 用于与 OpenClaw `bindings[].match.accountId` 对齐，从而把不同 WeCom 账号路由到不同 OpenClaw agent。
      */
-    accounts?: Record<string, WecomAccountConfig>;
+    accounts?: Record<string, WeComAccountConfig>;
     /** 默认账号（可选） */
     defaultAccount?: string;
     /** 媒体处理配置 */
-    media?: WecomMediaConfig;
+    media?: WeComMediaConfig;
     /** 网络配置 */
-    network?: WecomNetworkConfig;
+    network?: WeComNetworkConfig;
     /** 路由配置 */
-    routing?: WecomRoutingConfig;
+    routing?: WeComRoutingConfig;
     /** 动态 Agent 配置 */
-    dynamicAgents?: WecomDynamicAgentsConfig;
+    dynamicAgents?: WeComDynamicAgentsConfig;
 };
 
 /** Matrix 账号条目 */
-export type WecomAccountConfig = {
+export type WeComAccountConfig = {
     enabled?: boolean;
     name?: string;
-    bot?: WecomBotConfig;
-    agent?: WecomAgentConfig;
+    /** DM 策略: 'open' 允许所有人, 'pairing' 需要配对, 'allowlist' 仅允许列表, 'disabled' 禁用 */
+    dmPolicy?: "open" | "allowlist" | "pairing" | "disabled";
+    /** 允许发送消息的用户列表，与 dmPolicy 配合使用 */
+    allowFrom?: Array<string | number>;
+    bot?: WeComBotConfig;
+    agent?: WeComAgentConfig;
     /** WebSocket 服务器地址 */
     websocketUrl?: string;
     /** 是否发送"思考中"消息，默认为 true */
@@ -166,5 +170,5 @@ export type WecomAccountConfig = {
     /** 群组白名单（仅 groupPolicy="allowlist" 时生效） */
     groupAllowFrom?: Array<string | number>;
     /** 每个群组的详细配置（如群组内发送者白名单） */
-    groups?: Record<string, WecomGroupConfig>;
+    groups?: Record<string, WeComGroupConfig>;
 };

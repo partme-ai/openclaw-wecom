@@ -6,6 +6,15 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {}
+  },
+  "channelConfigs": {
+    "wecom": {
+      "configSchema": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {}
+      }
+    }
   }
 }
 

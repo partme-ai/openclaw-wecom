@@ -7,7 +7,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { CHANNEL_ID } from "./types/constants.js";
-import type { ResolvedWecomAccount, WecomGroupConfig } from "./types/index.js";
+import type { ResolvedWeComAccount, WeComGroupConfig, WeComAccountConfig } from "./types/index.js";
 
 // ============================================================================
 // 检查结果类型
@@ -28,10 +28,10 @@ export interface GroupPolicyCheckResult {
 /**
  * 解析企业微信群组配置
  */
-function resolveWecomGroupConfig(params: {
-  cfg?: WecomConfig;
+function resolveWeComGroupConfig(params: {
+  cfg?: WeComAccountConfig;
   groupId?: string | null;
-}): WecomGroupConfig | undefined {
+}): WeComGroupConfig | undefined {
   const groups = params.cfg?.groups ?? {};
   const wildcard = groups["*"];
   const groupId = params.groupId?.trim();
@@ -86,11 +86,11 @@ function isWeComGroupAllowed(params: {
 function isGroupSenderAllowed(params: {
   senderId: string;
   groupId: string;
-  wecomConfig: WecomConfig;
+  wecomConfig: WeComAccountConfig;
 }): boolean {
   const { senderId, groupId, wecomConfig } = params;
 
-  const groupConfig = resolveWecomGroupConfig({
+  const groupConfig = resolveWeComGroupConfig({
     cfg: wecomConfig,
     groupId,
   });
@@ -122,7 +122,7 @@ function isGroupSenderAllowed(params: {
 export function checkGroupPolicy(params: {
   chatId: string;
   senderId: string;
-  account: ResolvedWecomAccount;
+  account: ResolvedWeComAccount;
   config: OpenClawConfig;
   runtime: RuntimeEnv;
 }): GroupPolicyCheckResult {

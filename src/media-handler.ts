@@ -8,10 +8,10 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import type { WSClient } from "@wecom/aibot-node-sdk";
 import { fileTypeFromBuffer } from "file-type";
-import { getWecomRuntime } from "./runtime.js";
+import { getWeComRuntime } from "./runtime.js";
 import { IMAGE_DOWNLOAD_TIMEOUT_MS, FILE_DOWNLOAD_TIMEOUT_MS, DEFAULT_MEDIA_MAX_MB } from "./types/constants.js";
 import { withTimeout } from "./timeout.js";
-import type { ResolvedWecomAccount } from "./types/index.js";
+import type { ResolvedWeComAccount } from "./types/index.js";
 
 // ============================================================================
 // 媒体超限错误
@@ -80,13 +80,13 @@ async function detectImageContentType(data: Buffer): Promise<string> {
 export async function downloadAndSaveImages(params: {
   imageUrls: string[];
   imageAesKeys?: Map<string, string>;
-  account: ResolvedWecomAccount;
+  account: ResolvedWeComAccount;
   config: OpenClawConfig;
   runtime: RuntimeEnv;
   wsClient: WSClient;
 }): Promise<Array<{ path: string; contentType?: string }>> {
   const { imageUrls, config, runtime, wsClient } = params;
-  const core = getWecomRuntime();
+  const core = getWeComRuntime();
   const mediaList: Array<{ path: string; contentType?: string }> = [];
 
   for (const imageUrl of imageUrls) {
@@ -168,13 +168,13 @@ export async function downloadAndSaveImages(params: {
 export async function downloadAndSaveFiles(params: {
   fileUrls: string[];
   fileAesKeys?: Map<string, string>;
-  account: ResolvedWecomAccount;
+  account: ResolvedWeComAccount;
   config: OpenClawConfig;
   runtime: RuntimeEnv;
   wsClient: WSClient;
 }): Promise<Array<{ path: string; contentType?: string }>> {
   const { fileUrls, config, runtime, wsClient } = params;
-  const core = getWecomRuntime();
+  const core = getWeComRuntime();
   const mediaList: Array<{ path: string; contentType?: string }> = [];
 
   for (const fileUrl of fileUrls) {

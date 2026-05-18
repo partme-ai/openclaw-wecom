@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { decryptWecomMedia, decryptWecomMediaWithMeta } from "./media.js";
+import { decryptWeComMedia, decryptWeComMediaWithMeta } from "./media.js";
 import { WECOM_PKCS7_BLOCK_SIZE } from "./crypto.js";
 import crypto from "node:crypto";
 
@@ -20,7 +20,7 @@ function pkcs7Pad(buf: Buffer, blockSize: number): Buffer {
     return Buffer.concat([buf, Buffer.alloc(pad, padByte[0]!)]);
 }
 
-describe("decryptWecomMedia", () => {
+describe("decryptWeComMedia", () => {
     it("should download and decrypt media successfully", async () => {
         // 1. Setup Key and Data
         const aesKeyBase64 = "jWmYm7qr5nMoCAstdRmNjt3p7vsH8HkK+qiJqQ0aaaa="; // 32 bytes when decoded + padding
@@ -39,7 +39,7 @@ describe("decryptWecomMedia", () => {
         undiciFetch.mockResolvedValue(new Response(encrypted));
 
         // 4. Test
-        const decrypted = await decryptWecomMedia("http://mock.url/image", aesKeyBase64);
+        const decrypted = await decryptWeComMedia("http://mock.url/image", aesKeyBase64);
 
         // 5. Assert
         expect(decrypted.toString("utf8")).toBe("Hello WeCom Image Data");
@@ -50,10 +50,10 @@ describe("decryptWecomMedia", () => {
     });
 
     it("should fail if key is invalid", async () => {
-        await expect(decryptWecomMedia("http://url", "invalid-key")).rejects.toThrow();
+        await expect(decryptWeComMedia("http://url", "invalid-key")).rejects.toThrow();
     });
 
-    it("should return source metadata when using decryptWecomMediaWithMeta", async () => {
+    it("should return source metadata when using decryptWeComMediaWithMeta", async () => {
         const aesKeyBase64 = "jWmYm7qr5nMoCAstdRmNjt3p7vsH8HkK+qiJqQ0aaaa=";
         const aesKey = Buffer.from(aesKeyBase64 + "=", "base64");
         const iv = aesKey.subarray(0, 16);
@@ -73,7 +73,7 @@ describe("decryptWecomMedia", () => {
             }),
         );
 
-        const decrypted = await decryptWecomMediaWithMeta("http://mock.url/media?id=1", aesKeyBase64);
+        const decrypted = await decryptWeComMediaWithMeta("http://mock.url/media?id=1", aesKeyBase64);
         expect(decrypted.buffer.toString("utf8")).toBe("meta test");
         expect(decrypted.sourceContentType).toBe("application/octet-stream");
         expect(decrypted.sourceFilename).toBe("report v1.docx");

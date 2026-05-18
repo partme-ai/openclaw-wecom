@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
-import type { WecomBotInboundMessage as WecomInboundMessage } from "../types/index.js";
-import type { WecomWebhookTarget } from "./types.js";
+import type { WeComBotInboundMessage as WeComInboundMessage } from "../types/index.js";
+import type { WeComWebhookTarget } from "./types.js";
 import { StreamStore } from "./state.js";
 
 describe("wecom StreamStore queue", () => {
@@ -18,12 +18,12 @@ describe("wecom StreamStore queue", () => {
         runtime: {},
         core: {} as any,
         path: "/wecom",
-      } satisfies WecomWebhookTarget;
+      } satisfies WeComWebhookTarget;
 
       const conversationKey = "wecom:default:U:C";
 
-      const msg1 = { msgid: "M1" } satisfies WecomInboundMessage;
-      const msg2 = { msgid: "M2" } satisfies WecomInboundMessage;
+      const msg1 = { msgid: "M1" } satisfies WeComInboundMessage;
+      const msg2 = { msgid: "M2" } satisfies WeComInboundMessage;
 
       const r1 = store.addPendingMessage({
         conversationKey,
@@ -91,7 +91,7 @@ describe("wecom StreamStore queue", () => {
         runtime: {},
         core: {} as any,
         path: "/wecom",
-      } satisfies WecomWebhookTarget;
+      } satisfies WeComWebhookTarget;
 
       const conversationKey = "wecom:default:U:C2";
 
@@ -153,7 +153,7 @@ describe("wecom StreamStore queue", () => {
       runtime: {},
       core: {} as any,
       path: "/wecom",
-    } satisfies WecomWebhookTarget;
+    } satisfies WeComWebhookTarget;
 
     const conversationKey = "wecom:default:U:idle";
 

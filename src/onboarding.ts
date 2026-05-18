@@ -48,22 +48,22 @@ type ChannelOnboardingAdapter = {
         shouldPromptAccountIds: boolean;
     }) => Promise<{ cfg: OpenClawConfig; accountId?: string }>;
 };
-import { listWecomAccountIds, resolveDefaultWecomAccountId, resolveWecomAccount, resolveWecomAccounts } from "./config/index.js";
-import type { WecomConfig, WecomBotConfig, WecomAgentConfig, WecomDmConfig, WecomAccountConfig } from "./types/index.js";
+import { listWeComAccountIds, resolveDefaultWeComAccountId, resolveWeComAccount, resolveWeComAccounts } from "./config/index.js";
+import type { WeComConfig, WeComBotConfig, WeComAgentConfig, WeComDmConfig, WeComAccountConfig } from "./types/index.js";
 
 const channel = "wecom" as const;
 
-type WecomMode = "bot" | "agent" | "both";
+type WeComMode = "bot" | "agent" | "both";
 
 // ============================================================
 // 辅助函数
 // ============================================================
 
-function getWecomConfig(cfg: OpenClawConfig): WecomConfig | undefined {
-    return cfg.channels?.wecom as WecomConfig | undefined;
+function getWeComConfig(cfg: OpenClawConfig): WeComConfig | undefined {
+    return cfg.channels?.wecom as WeComConfig | undefined;
 }
 
-function setWecomEnabled(cfg: OpenClawConfig, enabled: boolean): OpenClawConfig {
+function setWeComEnabled(cfg: OpenClawConfig, enabled: boolean): OpenClawConfig {
     return {
         ...cfg,
         channels: {
@@ -85,7 +85,7 @@ function setWecomEnabled(cfg: OpenClawConfig, enabled: boolean): OpenClawConfig 
  *
  * 如果 bindings 中已存在匹配 channel+accountId 的条目，则不会重复添加。
  */
-function ensureWecomBinding(cfg: OpenClawConfig, accountId: string): OpenClawConfig {
+function ensureWeComBinding(cfg: OpenClawConfig, accountId: string): OpenClawConfig {
     const existing = cfg.bindings ?? [];
     const alreadyBound = existing.some(
         (b) => b.match.channel === channel && (b.match.accountId === accountId || (!b.match.accountId && accountId === DEFAULT_ACCOUNT_ID)),
@@ -119,8 +119,8 @@ function setGatewayBindLan(cfg: OpenClawConfig): OpenClawConfig {
     } as OpenClawConfig;
 }
 
-function setWecomDefaultAccount(cfg: OpenClawConfig, accountId: string): OpenClawConfig {
-    const wecom = getWecomConfig(cfg) ?? {};
+function setWeComDefaultAccount(cfg: OpenClawConfig, accountId: string): OpenClawConfig {
+    const wecom = getWeComConfig(cfg) ?? {};
     return {
         ...cfg,
         channels: {
@@ -133,13 +133,13 @@ function setWecomDefaultAccount(cfg: OpenClawConfig, accountId: string): OpenCla
     } as OpenClawConfig;
 }
 
-function shouldUseAccountScopedConfig(wecom: WecomConfig | undefined, accountId: string): boolean {
+function shouldUseAccountScopedConfig(wecom: WeComConfig | undefined, accountId: string): boolean {
     void wecom;
     void accountId;
     return true;
 }
 
-function ensureMatrixAccounts(wecom: WecomConfig): WecomConfig {
+function ensureMatrixAccounts(wecom: WeComConfig): WeComConfig {
     const accounts = wecom.accounts ?? {};
     if (Object.keys(accounts).length > 0) {
         return wecom;
@@ -150,7 +150,7 @@ function ensureMatrixAccounts(wecom: WecomConfig): WecomConfig {
     }
 
     const { bot: legacyBot, agent: legacyAgent, ...rest } = wecom;
-    const defaultAccount: WecomAccountConfig = {
+    const defaultAccount: WeComAccountConfig = {
         enabled: true,
         ...(legacyBot ? { bot: legacyBot } : {}),
         ...(legacyAgent ? { agent: legacyAgent } : {}),
@@ -170,8 +170,8 @@ function accountWebhookPath(kind: "bot" | "agent", accountId: string): string {
     return `${recommendedBase}/${accountId}`;
 }
 
-export function setWecomBotConfig(cfg: OpenClawConfig, bot: WecomBotConfig, accountId: string): OpenClawConfig {
-    const wecom = getWecomConfig(cfg) ?? {};
+export function setWeComBotConfig(cfg: OpenClawConfig, bot: WeComBotConfig, accountId: string): OpenClawConfig {
+    const wecom = getWeComConfig(cfg) ?? {};
     if (!shouldUseAccountScopedConfig(wecom, accountId)) {
         return {
             ...cfg,
@@ -210,8 +210,8 @@ export function setWecomBotConfig(cfg: OpenClawConfig, bot: WecomBotConfig, acco
     } as OpenClawConfig;
 }
 
-function setWecomAgentConfig(cfg: OpenClawConfig, agent: WecomAgentConfig, accountId: string): OpenClawConfig {
-    const wecom = getWecomConfig(cfg) ?? {};
+function setWeComAgentConfig(cfg: OpenClawConfig, agent: WeComAgentConfig, accountId: string): OpenClawConfig {
+    const wecom = getWeComConfig(cfg) ?? {};
     if (!shouldUseAccountScopedConfig(wecom, accountId)) {
         return {
             ...cfg,
@@ -250,18 +250,18 @@ function setWecomAgentConfig(cfg: OpenClawConfig, agent: WecomAgentConfig, accou
     } as OpenClawConfig;
 }
 
-function setWecomDmPolicy(
+function setWeComDmPolicy(
     cfg: OpenClawConfig,
     mode: "bot" | "agent",
-    dm: WecomDmConfig,
+    dm: WeComDmConfig,
     accountId: string,
 ): OpenClawConfig {
-    const wecom = getWecomConfig(cfg) ?? {};
+    const wecom = getWeComConfig(cfg) ?? {};
     if (shouldUseAccountScopedConfig(wecom, accountId)) {
         const matrixWecom = ensureMatrixAccounts(wecom);
         const accounts = matrixWecom.accounts ?? {};
         const existingAccount = accounts[accountId] ?? {};
-        const nextAccount: WecomAccountConfig =
+        const nextAccount: WeComAccountConfig =
             mode === "bot"
                 ? {
                     ...existingAccount,
@@ -275,7 +275,7 @@ function setWecomDmPolicy(
                     agent: {
                         ...existingAccount.agent,
                         dm,
-                    } as WecomAgentConfig,
+                    } as WeComAgentConfig,
                 };
         return {
             ...cfg,
@@ -333,7 +333,7 @@ async function resolveOnboardingAccountId(params: {
     accountOverride?: string;
     shouldPromptAccountIds: boolean;
 }): Promise<string> {
-    const defaultAccountId = resolveDefaultWecomAccountId(params.cfg);
+    const defaultAccountId = resolveDefaultWeComAccountId(params.cfg);
     const override = params.accountOverride?.trim();
     let accountId = override || defaultAccountId;
     if (!override && params.shouldPromptAccountIds) {
@@ -343,7 +343,7 @@ async function resolveOnboardingAccountId(params: {
             prompter: params.prompter,
             label: "WeCom",
             currentId: accountId,
-            listAccountIds: (cfg) => listWecomAccountIds(cfg as OpenClawConfig),
+            listAccountIds: (cfg) => listWeComAccountIds(cfg as OpenClawConfig),
             defaultAccountId,
         });
     }
@@ -368,7 +368,7 @@ async function showWelcome(prompter: WizardPrompter): Promise<void> {
 // 模式选择
 // ============================================================
 
-async function promptMode(prompter: WizardPrompter): Promise<WecomMode> {
+async function promptMode(prompter: WizardPrompter): Promise<WeComMode> {
     const choice = await prompter.select({
         message: "请选择您要配置的接入模式:",
         options: [
@@ -390,7 +390,7 @@ async function promptMode(prompter: WizardPrompter): Promise<WecomMode> {
         ],
         initialValue: "both",
     });
-    return choice as WecomMode;
+    return choice as WeComMode;
 }
 
 // ============================================================
@@ -475,7 +475,7 @@ async function configureBotWebhook(
         initialValue: "你好！我是 AI 助手",
     });
 
-    const botConfig: WecomBotConfig = {
+    const botConfig: WeComBotConfig = {
         connectionMode: "webhook",
         token,
         encodingAESKey,
@@ -483,7 +483,7 @@ async function configureBotWebhook(
         welcomeText: welcomeText?.trim() || undefined,
     };
 
-    return setWecomBotConfig(cfg, botConfig, accountId);
+    return setWeComBotConfig(cfg, botConfig, accountId);
 }
 
 async function configureBotWebsocket(
@@ -528,7 +528,7 @@ async function configureBotWebsocket(
         initialValue: "你好！我是 AI 助手",
     });
 
-    const botConfig: WecomBotConfig = {
+    const botConfig: WeComBotConfig = {
         connectionMode: "websocket",
         botId,
         secret,
@@ -536,7 +536,7 @@ async function configureBotWebsocket(
         welcomeText: welcomeText?.trim() || undefined,
     };
 
-    return setWecomBotConfig(cfg, botConfig, accountId);
+    return setWeComBotConfig(cfg, botConfig, accountId);
 }
 
 // ============================================================
@@ -620,7 +620,7 @@ async function configureAgentMode(
         initialValue: "欢迎使用智能助手",
     });
 
-    const agentConfig: WecomAgentConfig = {
+    const agentConfig: WeComAgentConfig = {
         corpId,
         corpSecret,
         agentId,
@@ -629,7 +629,7 @@ async function configureAgentMode(
         welcomeText: welcomeText?.trim() || undefined,
     };
 
-    return setWecomAgentConfig(cfg, agentConfig, accountId);
+    return setWeComAgentConfig(cfg, agentConfig, accountId);
 }
 
 // ============================================================
@@ -667,11 +667,11 @@ async function promptDmPolicy(
         allowFrom = allowFromStr.split(",").map((s) => s.trim()).filter(Boolean);
     }
 
-    const dm: WecomDmConfig = { policy, allowFrom };
+    const dm: WeComDmConfig = { policy, allowFrom };
 
     let result = cfg;
     for (const mode of modes) {
-        result = setWecomDmPolicy(result, mode, dm, accountId);
+        result = setWeComDmPolicy(result, mode, dm, accountId);
     }
     return result;
 }
@@ -681,7 +681,7 @@ async function promptDmPolicy(
 // ============================================================
 
 async function showSummary(cfg: OpenClawConfig, prompter: WizardPrompter, accountId: string): Promise<void> {
-    const account = resolveWecomAccount({ cfg, accountId });
+    const account = resolveWeComAccount({ cfg, accountId });
     const lines: string[] = ["✅ 配置已保存！", ""];
 
     if (account.bot?.configured) {
@@ -726,12 +726,12 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
     policyKey: "channels.wecom.bot.dm.policy",
     allowFromKey: "channels.wecom.bot.dm.allowFrom",
     getCurrent: (cfg: OpenClawConfig) => {
-        const account = resolveWecomAccount({ cfg });
+        const account = resolveWeComAccount({ cfg });
         return (account.bot?.config.dm?.policy ?? "pairing") as "pairing";
     },
     setPolicy: (cfg: OpenClawConfig, policy: string) => {
-        const accountId = resolveDefaultWecomAccountId(cfg);
-        return setWecomDmPolicy(cfg, "bot", { policy: policy as "pairing" | "allowlist" | "open" | "disabled" }, accountId);
+        const accountId = resolveDefaultWeComAccountId(cfg);
+        return setWeComDmPolicy(cfg, "bot", { policy: policy as "pairing" | "allowlist" | "open" | "disabled" }, accountId);
     },
     promptAllowFrom: async ({ cfg, prompter }: { cfg: OpenClawConfig; prompter: WizardPrompter }) => {
         const allowFromStr = String(
@@ -741,8 +741,8 @@ const dmPolicy: ChannelOnboardingDmPolicy = {
             }),
         ).trim();
         const allowFrom = allowFromStr.split(",").map((s) => s.trim()).filter(Boolean);
-        const accountId = resolveDefaultWecomAccountId(cfg);
-        return setWecomDmPolicy(cfg, "bot", { policy: "allowlist", allowFrom }, accountId);
+        const accountId = resolveDefaultWeComAccountId(cfg);
+        return setWeComDmPolicy(cfg, "bot", { policy: "allowlist", allowFrom }, accountId);
     },
 };
 
@@ -754,7 +754,7 @@ export const wecomOnboardingAdapter: ChannelOnboardingAdapter = {
     channel,
     dmPolicy,
     getStatus: async ({ cfg }: { cfg: OpenClawConfig }) => {
-        const resolved = resolveWecomAccounts(cfg);
+        const resolved = resolveWeComAccounts(cfg);
         const accounts = Object.values(resolved.accounts).filter((account) => account.enabled !== false);
         const botConfigured = accounts.some((account) => Boolean(account.bot?.configured));
         const agentConfigured = accounts.some((account) => Boolean(account.agent?.configured));
@@ -817,16 +817,16 @@ export const wecomOnboardingAdapter: ChannelOnboardingAdapter = {
         next = await promptDmPolicy(next, prompter, configuredModes, accountId);
 
         // 7. 设置 defaultAccount
-        next = setWecomDefaultAccount(next, accountId);
+        next = setWeComDefaultAccount(next, accountId);
 
         // 8. 启用通道
-        next = setWecomEnabled(next, true);
+        next = setWeComEnabled(next, true);
 
         // 9. 设置 gateway.bind 为 lan（允许外部访问回调）
         next = setGatewayBindLan(next);
 
         // 10. 确保 bindings 中有默认路由（onboard quickstart 不会提示绑定）
-        next = ensureWecomBinding(next, accountId);
+        next = ensureWeComBinding(next, accountId);
 
         // 11. 汇总
         await showSummary(next, prompter, accountId);

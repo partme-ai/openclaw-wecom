@@ -7,38 +7,38 @@ export * from "./constants.js";
 
 // 配置类型
 export type {
-    WecomAccountConfig,
-    WecomDmConfig,
-    WecomGroupConfig,
-    WecomMediaConfig,
-    WecomNetworkConfig,
-    WecomRoutingConfig,
-    WecomBotConfig,
-    WecomAgentConfig,
-    WecomConfig,
-    WecomDynamicAgentsConfig,
+    WeComAccountConfig,
+    WeComDmConfig,
+    WeComGroupConfig,
+    WeComMediaConfig,
+    WeComNetworkConfig,
+    WeComRoutingConfig,
+    WeComBotConfig,
+    WeComAgentConfig,
+    WeComConfig,
+    WeComDynamicAgentsConfig,
 } from "./config.js";
 
 // 账号类型
 export type {
-    ResolvedWecomAccount,
+    ResolvedWeComAccount,
     ResolvedBotAccount,
     ResolvedAgentAccount,
     ResolvedMode,
-    ResolvedWecomAccounts,
+    ResolvedWeComAccounts,
 } from "./account.js";
 
 // 消息类型
 export type {
-    WecomBotInboundBase,
-    WecomBotInboundText,
-    WecomBotInboundVoice,
-    WecomBotInboundVideo,
-    WecomBotInboundStreamRefresh,
-    WecomBotInboundEvent,
-    WecomBotInboundMessage,
-    WecomAgentInboundMessage,
-    WecomInboundQuote,
-    WecomTemplateCard,
-    WecomOutboundMessage,
+    WeComBotInboundBase,
+    WeComBotInboundText,
+    WeComBotInboundVoice,
+    WeComBotInboundVideo,
+    WeComBotInboundStreamRefresh,
+    WeComBotInboundEvent,
+    WeComBotInboundMessage,
+    WeComAgentInboundMessage,
+    WeComInboundQuote,
+    WeComTemplateCard,
+    WeComOutboundMessage,
 } from "./message.js";

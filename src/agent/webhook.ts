@@ -10,7 +10,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import crypto from "node:crypto";
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk/core";
-import { WecomCrypto } from "@wecom/aibot-node-sdk";
+import { WecomCrypto as WeComCrypto } from "@wecom/aibot-node-sdk";
 import type { ResolvedAgentAccount } from "../types/index.js";
 import { extractEncryptFromXml } from "./xml.js";
 import { parseXml, extractAgentId } from "../shared/xml-parser.js";
@@ -122,12 +122,12 @@ function normalizeAgentIdValue(value: unknown): number | undefined {
 // Main HTTP handler
 // ============================================================================
 
-export function createWecomAgentWebhookHandler(runtime: PluginRuntime) {
+export function createWeComAgentWebhookHandler(runtime: PluginRuntime) {
     return (req: IncomingMessage, res: ServerResponse) =>
-        handleWecomAgentWebhookRequest(req, res, runtime);
+        handleWeComAgentWebhookRequest(req, res, runtime);
 }
 
-export async function handleWecomAgentWebhookRequest(
+export async function handleWeComAgentWebhookRequest(
     req: IncomingMessage,
     res: ServerResponse,
     runtime: PluginRuntime,
@@ -164,7 +164,7 @@ export async function handleWecomAgentWebhookRequest(
         const echostr = query.get("echostr") ?? "";
         // 用签名匹配正确的 target
         const matched = targets.filter((t) => {
-            const wc = new WecomCrypto(t.agent.token, t.agent.encodingAESKey, t.agent.corpId);
+            const wc = new WeComCrypto(t.agent.token, t.agent.encodingAESKey, t.agent.corpId);
             return wc.verifySignature(signature, timestamp, nonce, echostr);
         });
         if (matched.length !== 1) {
@@ -176,7 +176,7 @@ export async function handleWecomAgentWebhookRequest(
         }
         const selected = matched[0]!;
         try {
-            const wc = new WecomCrypto(selected.agent.token, selected.agent.encodingAESKey, selected.agent.corpId);
+            const wc = new WeComCrypto(selected.agent.token, selected.agent.encodingAESKey, selected.agent.corpId);
             const plain = wc.decrypt(echostr);
             res.statusCode = 200;
             res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -213,7 +213,7 @@ export async function handleWecomAgentWebhookRequest(
 
     // 签名匹配
     const matched = targets.filter((t) => {
-        const wc = new WecomCrypto(t.agent.token, t.agent.encodingAESKey, t.agent.corpId);
+        const wc = new WeComCrypto(t.agent.token, t.agent.encodingAESKey, t.agent.corpId);
         return wc.verifySignature(signature, timestamp, nonce, encrypted);
     });
     if (matched.length !== 1) {
@@ -228,7 +228,7 @@ export async function handleWecomAgentWebhookRequest(
     let decrypted = "";
     let parsed: ReturnType<typeof parseXml> | null = null;
     try {
-        const wc = new WecomCrypto(selected.agent.token, selected.agent.encodingAESKey, selected.agent.corpId);
+        const wc = new WeComCrypto(selected.agent.token, selected.agent.encodingAESKey, selected.agent.corpId);
         decrypted = wc.decrypt(encrypted);
         parsed = parseXml(decrypted);
     } catch {

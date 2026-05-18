@@ -7,16 +7,16 @@ import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
 import type { ResolvedAgentAccount } from "./types/index.js";
 import type { ResolvedBotAccount } from "./types/index.js";
-import type { WecomBotInboundMessage as WecomInboundMessage, WecomInboundQuote } from "./types/index.js";
-import { decryptWecomEncrypted, encryptWecomPlaintext, verifyWecomSignature, computeWecomMsgSignature } from "./crypto.js";
+import type { WeComBotInboundMessage as WeComInboundMessage, WeComInboundQuote } from "./types/index.js";
+import { decryptWeComEncrypted, encryptWeComPlaintext, verifyWeComSignature, computeWeComMsgSignature } from "./crypto.js";
 import { extractEncryptFromXml } from "./crypto/xml.js";
-import { getWecomRuntime } from "./runtime.js";
-import { decryptWecomMediaWithMeta } from "./media.js";
+import { getWeComRuntime } from "./runtime.js";
+import { decryptWeComMediaWithMeta } from "./media.js";
 import { uploadAndSendMediaBuffer } from "./media/index.js";
 import { getWsClient } from "./ws-adapter.js";
 import { WEBHOOK_PATHS, LIMITS as WECOM_LIMITS } from "./types/constants.js";
 import { handleAgentWebhook } from "./agent/index.js";
-import { resolveWecomAccount, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "./config/index.js";
+import { resolveWeComAccount, resolveWeComEgressProxyUrl, resolveWeComMediaMaxBytes, shouldRejectWeComDefaultRoute } from "./config/index.js";
 import { wecomFetch } from "./http.js";
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
 import { extractAgentId, parseXml } from "./shared/xml-parser.js";
@@ -28,9 +28,9 @@ import { extractAgentId, parseXml } from "./shared/xml-parser.js";
  * 它是插件与企业微信交互的“心脏”，管理着所有会话的生命周期。
  */
 
-import type { WecomRuntimeEnv, WecomWebhookTarget, StreamState, PendingInbound, ActiveReplyState } from "./monitor/types.js";
+import type { WeComRuntimeEnv, WeComWebhookTarget, StreamState, PendingInbound, ActiveReplyState } from "./monitor/types.js";
 import { monitorState, LIMITS } from "./monitor/state.js";
-import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "./shared/command-auth.js";
+import { buildWeComUnauthorizedCommandPrompt, resolveWeComCommandAuthorization } from "./shared/command-auth.js";
 import { generateAgentId, shouldUseDynamicAgent, ensureDynamicAgentListed } from "./dynamic-agent.js";
 
 // Global State
@@ -41,13 +41,13 @@ const streamStore = monitorState.streamStore;
 const activeReplyStore = monitorState.activeReplyStore;
 
 // Target Registry
-const webhookTargets = new Map<string, WecomWebhookTarget[]>();
+const webhookTargets = new Map<string, WeComWebhookTarget[]>();
 
 // Agent 模式 target 存储
 type AgentWebhookTarget = {
   agent: ResolvedAgentAccount;
   config: OpenClawConfig;
-  runtime: WecomRuntimeEnv;
+  runtime: WeComRuntimeEnv;
   path: string;
   // ...
 };
@@ -178,12 +178,12 @@ function buildEncryptedJsonReply(params: {
   timestamp: string;
 }): { encrypt: string; msgsignature: string; timestamp: string; nonce: string } {
   const plaintext = JSON.stringify(params.plaintextJson ?? {});
-  const encrypt = encryptWecomPlaintext({
+  const encrypt = encryptWeComPlaintext({
     encodingAESKey: params.account.encodingAESKey ?? "",
     receiveId: params.account.receiveId ?? "",
     plaintext,
   });
-  const msgsignature = computeWecomMsgSignature({
+  const msgsignature = computeWeComMsgSignature({
     token: params.account.token ?? "",
     timestamp: params.timestamp,
     nonce: params.nonce,
@@ -222,7 +222,7 @@ type RouteFailureReason =
   | "wecom_identity_mismatch"
   | "wecom_matrix_path_required";
 
-function isNonMatrixWecomBasePath(path: string): boolean {
+function isNonMatrixWeComBasePath(path: string): boolean {
   return (
     path === WEBHOOK_PATHS.BOT ||
     path === WEBHOOK_PATHS.BOT_ALT ||
@@ -308,7 +308,7 @@ function normalizeAgentIdValue(value: unknown): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function resolveBotIdentitySet(target: WecomWebhookTarget): Set<string> {
+function resolveBotIdentitySet(target: WeComWebhookTarget): Set<string> {
   const ids = new Set<string>();
   const single = target.account.config.aibotid?.trim();
   if (single) ids.add(single);
@@ -382,7 +382,7 @@ function appendDmContent(state: StreamState, text: string): void {
   state.dmContent = truncateUtf8Bytes(next, STREAM_MAX_DM_BYTES);
 }
 
-function computeTaskKey(target: WecomWebhookTarget, msg: WecomInboundMessage): string | undefined {
+function computeTaskKey(target: WeComWebhookTarget, msg: WeComInboundMessage): string | undefined {
   const msgid = msg.msgid ? String(msg.msgid) : "";
   if (!msgid) return undefined;
   const aibotid = String((msg as any).aibotid ?? "unknown").trim() || "unknown";
@@ -390,7 +390,7 @@ function computeTaskKey(target: WecomWebhookTarget, msg: WecomInboundMessage): s
 }
 
 function resolveAgentAccountOrUndefined(cfg: OpenClawConfig, accountId: string): ResolvedAgentAccount | undefined {
-  const agent = resolveWecomAccount({ cfg, accountId }).agent;
+  const agent = resolveWeComAccount({ cfg, accountId }).agent;
   return agent?.configured ? agent : undefined;
 }
 
@@ -782,7 +782,7 @@ function resolveInlineFileName(input: unknown): string | undefined {
   return sanitizeInboundFilename(raw);
 }
 
-function pickBotFileName(msg: WecomInboundMessage, item?: Record<string, any>): string | undefined {
+function pickBotFileName(msg: WeComInboundMessage, item?: Record<string, any>): string | undefined {
   const fromItem = item
     ? resolveInlineFileName(
       item?.filename ??
@@ -868,12 +868,12 @@ async function useActiveReplyOnce(streamId: string, fn: (params: { responseUrl: 
 }
 
 
-function logVerbose(target: WecomWebhookTarget, message: string): void {
+function logVerbose(target: WeComWebhookTarget, message: string): void {
   const should =
     target.core.logging?.shouldLogVerbose?.() ??
     (() => {
       try {
-        return getWecomRuntime().logging.shouldLogVerbose();
+        return getWeComRuntime().logging.shouldLogVerbose();
       } catch {
         return false;
       }
@@ -882,11 +882,11 @@ function logVerbose(target: WecomWebhookTarget, message: string): void {
   target.runtime.log?.(`[wecom] ${message}`);
 }
 
-function logInfo(target: WecomWebhookTarget, message: string): void {
+function logInfo(target: WeComWebhookTarget, message: string): void {
   target.runtime.log?.(`[wecom] ${message}`);
 }
 
-function resolveWecomSenderUserId(msg: WecomInboundMessage): string | undefined {
+function resolveWeComSenderUserId(msg: WeComInboundMessage): string | undefined {
   const direct = msg.from?.userid?.trim();
   if (direct) return direct;
   const legacy = String((msg as any).fromuserid ?? (msg as any).from_userid ?? (msg as any).fromUserId ?? "").trim();
@@ -906,8 +906,8 @@ export type BotInboundProcessDecision = {
  * - 发送者是 sys -> 丢弃，避免系统回调触发 AI 自动回复
  * - 群消息缺失 chatid -> 丢弃，避免 group:unknown 串群
  */
-export function shouldProcessBotInboundMessage(msg: WecomInboundMessage): BotInboundProcessDecision {
-  const senderUserId = resolveWecomSenderUserId(msg)?.trim();
+export function shouldProcessBotInboundMessage(msg: WeComInboundMessage): BotInboundProcessDecision {
+  const senderUserId = resolveWeComSenderUserId(msg)?.trim();
   if (!senderUserId) {
     return { shouldProcess: false, reason: "missing_sender" };
   }
@@ -927,12 +927,12 @@ export function shouldProcessBotInboundMessage(msg: WecomInboundMessage): BotInb
   return { shouldProcess: true, reason: "user_message", senderUserId, chatId: senderUserId };
 }
 
-function parseWecomPlainMessage(raw: string): WecomInboundMessage {
+function parseWeComPlainMessage(raw: string): WeComInboundMessage {
   const parsed = JSON.parse(raw) as unknown;
   if (!parsed || typeof parsed !== "object") {
     return {};
   }
-  return parsed as WecomInboundMessage;
+  return parsed as WeComInboundMessage;
 }
 
 export type InboundResult = {
@@ -956,11 +956,11 @@ export type InboundResult = {
  * @param target Webhook 目标配置
  * @param msg 企业微信原始消息对象
  */
-export async function processInboundMessage(target: WecomWebhookTarget, msg: WecomInboundMessage): Promise<InboundResult> {
+export async function processInboundMessage(target: WeComWebhookTarget, msg: WeComInboundMessage): Promise<InboundResult> {
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
   const globalAesKey = target.account.encodingAESKey;
-  const maxBytes = resolveWecomMediaMaxBytes(target.config);
-  const proxyUrl = resolveWecomEgressProxyUrl(target.config);
+  const maxBytes = resolveWeComMediaMaxBytes(target.config);
+  const proxyUrl = resolveWeComEgressProxyUrl(target.config);
 
 
   // 图片消息处理：如果存在 url 且配置了 aesKey，则尝试解密下载
@@ -969,7 +969,7 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
     const aesKey = globalAesKey || (msg as any).image?.aeskey || "";
     if (url && aesKey) {
       try {
-        const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const decrypted = await decryptWeComMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
         const inferred = inferInboundMediaMeta({
           kind: "image",
           buffer: decrypted.buffer,
@@ -1004,7 +1004,7 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
     const aesKey = globalAesKey || (msg as any).file?.aeskey || "";
     if (url && aesKey) {
       try {
-        const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const decrypted = await decryptWeComMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
         const inferred = inferInboundMediaMeta({
           kind: "file",
           buffer: decrypted.buffer,
@@ -1040,7 +1040,7 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
     logVerbose(target, `video: url=${url ? url.substring(0, 80) + "..." : "(empty)"} aesKey=${aesKey ? "(present)" : "(empty)"}`);
     if (url && aesKey) {
       try {
-        const decrypted = await decryptWecomMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
+        const decrypted = await decryptWeComMediaWithMeta(url, aesKey, { maxBytes, http: { proxyUrl } });
         const inferred = inferInboundMediaMeta({
           kind: "file",
           buffer: decrypted.buffer,
@@ -1090,7 +1090,7 @@ export async function processInboundMessage(target: WecomWebhookTarget, msg: Wec
           } else
             if (url) {
             try {
-              const decrypted = await decryptWecomMediaWithMeta(url, itemAesKey, { maxBytes, http: { proxyUrl } });
+              const decrypted = await decryptWeComMediaWithMeta(url, itemAesKey, { maxBytes, http: { proxyUrl } });
               const inferred = inferInboundMediaMeta({
                 kind: t,
                 buffer: decrypted.buffer,
@@ -1156,7 +1156,7 @@ async function flushPending(pending: PendingInbound): Promise<void> {
 
   let core: PluginRuntime | null = null;
   try {
-    core = getWecomRuntime();
+    core = getWeComRuntime();
   } catch (err) {
     logVerbose(target, `flush pending: runtime not ready: ${String(err)}`);
     streamStore.markFinished(streamId);
@@ -1167,7 +1167,7 @@ async function flushPending(pending: PendingInbound): Promise<void> {
 
   if (core) {
     streamStore.markStarted(streamId);
-    const enrichedTarget: WecomWebhookTarget = { ...target, core };
+    const enrichedTarget: WeComWebhookTarget = { ...target, core };
     logInfo(target, `flush pending: start batch streamId=${streamId} batchKey=${batchKey} conversationKey=${conversationKey} mergedCount=${contents.length}`);
     logVerbose(target, `防抖结束: 开始处理聚合消息 数量=${contents.length} streamId=${streamId}`);
 
@@ -1227,9 +1227,9 @@ async function waitForStreamContent(streamId: string, maxWaitMs: number): Promis
  * 6. 处理 Agent 输出（包括文本、Markdown 表格转换、<think> 标签保护、模板卡片识别）。
  */
 async function startAgentForStream(params: {
-  target: WecomWebhookTarget;
+  target: WeComWebhookTarget;
   accountId: string;
-  msg: WecomInboundMessage;
+  msg: WeComInboundMessage;
   streamId: string;
   mergedContents?: string; // Combined content from debounced messages
   mergedMsgids?: string[];
@@ -1242,7 +1242,7 @@ async function startAgentForStream(params: {
   // WS 长连接模式标记：跳过 Webhook 专属的 Agent 私信兜底逻辑
   const isWsMode = Boolean(streamStore.getStream(streamId)?.wsMode);
 
-  const userid = resolveWecomSenderUserId(msg) || "unknown";
+  const userid = resolveWeComSenderUserId(msg) || "unknown";
   const chatType = msg.chattype === "group" ? "group" : "direct";
   const chatId = msg.chattype === "group" ? (msg.chatid?.trim() || "unknown") : userid;
   const taskKey = computeTaskKey(target, msg);
@@ -1592,7 +1592,7 @@ async function startAgentForStream(params: {
   let mediaType: string | undefined;
   if (media) {
     try {
-      const maxBytes = resolveWecomMediaMaxBytes(target.config);
+      const maxBytes = resolveWeComMediaMaxBytes(target.config);
       const saved = await core.channel.media.saveMediaBuffer(
         media.buffer,
         media.contentType,
@@ -1649,7 +1649,7 @@ async function startAgentForStream(params: {
     config,
   });
 
-  if (shouldRejectWecomDefaultRoute({ cfg: config, matchedBy: route.matchedBy, useDynamicAgent })) {
+  if (shouldRejectWeComDefaultRoute({ cfg: config, matchedBy: route.matchedBy, useDynamicAgent })) {
     const prompt =
       `当前账号（${account.accountId}）未绑定 OpenClaw Agent，已拒绝回退到默认主智能体。` +
       `请在 bindings 中添加：{"agentId":"你的Agent","match":{"channel":"wecom","accountId":"${account.accountId}"}}`;
@@ -1705,7 +1705,7 @@ async function startAgentForStream(params: {
     body: rawBody,
   });
 
-  const authz = await resolveWecomCommandAuthorization({
+  const authz = await resolveWeComCommandAuthorization({
     core,
     cfg: config,
     accountConfig: account.config,
@@ -1720,7 +1720,7 @@ async function startAgentForStream(params: {
 
   // 命令门禁：如果这是命令且未授权，必须给用户一个明确的中文回复（不能静默忽略）
   if (authz.shouldComputeAuth && authz.commandAuthorized !== true) {
-    const prompt = buildWecomUnauthorizedCommandPrompt({ senderUserId: userid, dmPolicy: authz.dmPolicy, scope: "bot" });
+    const prompt = buildWeComUnauthorizedCommandPrompt({ senderUserId: userid, dmPolicy: authz.dmPolicy, scope: "bot" });
     streamStore.updateStream(streamId, (s) => {
       s.finished = true;
       s.content = prompt;
@@ -2358,7 +2358,7 @@ async function startAgentForStream(params: {
   streamStore.onStreamFinished(streamId);
 }
 
-function formatQuote(quote: WecomInboundQuote): string {
+function formatQuote(quote: WeComInboundQuote): string {
   const type = quote.msgtype ?? "";
   if (type === "text") return quote.text?.content || "";
   if (type === "image") return `[引用: 图片] ${quote.image?.url || ""}`;
@@ -2376,7 +2376,7 @@ function formatQuote(quote: WecomInboundQuote): string {
   return "";
 }
 
-export function buildInboundBody(msg: WecomInboundMessage): string {
+export function buildInboundBody(msg: WeComInboundMessage): string {
   let body = "";
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
 
@@ -2408,13 +2408,13 @@ export function buildInboundBody(msg: WecomInboundMessage): string {
 }
 
 /**
- * **registerWecomWebhookTarget (注册 Webhook 目标)**
+ * **registerWeComWebhookTarget (注册 Webhook 目标)**
  * 
  * 注册一个 Bot 模式的接收端点。
  * 同时会触发清理定时器的检查（如果有新注册，确保定时器运行）。
  * 返回一个注销函数。
  */
-export function registerWecomWebhookTarget(target: WecomWebhookTarget): () => void {
+export function registerWeComWebhookTarget(target: WeComWebhookTarget): () => void {
   const key = normalizeWebhookPath(target.path);
   const normalizedTarget = { ...target, path: key };
   const existing = webhookTargets.get(key) ?? [];
@@ -2446,7 +2446,7 @@ export function registerAgentWebhookTarget(target: AgentWebhookTarget): () => vo
 }
 
 /**
- * **handleWecomWebhookRequest (HTTP 请求入口)**
+ * **handleWeComWebhookRequest (HTTP 请求入口)**
  * 
  * 处理来自企业微信的所有 Webhook 请求。
  * 职责：
@@ -2457,7 +2457,7 @@ export function registerAgentWebhookTarget(target: AgentWebhookTarget): () => vo
  *    - GET 请求：处理 EchoStr 验证。
  *    - POST 请求：接收消息，放入 StreamStore，返回流式 First Chunk。
  */
-export async function handleWecomWebhookRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+export async function handleWeComWebhookRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const path = resolvePath(req);
   const reqId = crypto.randomUUID().slice(0, 8);
   const remote = req.socket?.remoteAddress ?? "unknown";
@@ -2474,7 +2474,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
     `[wecom] inbound(http): reqId=${reqId} path=${path} method=${req.method ?? "UNKNOWN"} remote=${remote} ua=${ua ? `"${ua}"` : "N/A"} contentLength=${cl || "N/A"} query={timestamp:${hasTimestamp},nonce:${hasNonce},echostr:${hasEchostr},msg_signature:${hasMsgSig},signature:${hasSignature}}`,
   );
 
-  if (hasMatrixExplicitRoutesRegistered() && isNonMatrixWecomBasePath(path)) {
+  if (hasMatrixExplicitRoutesRegistered() && isNonMatrixWeComBasePath(path)) {
     // 兼容老路径：如果老路径已有 target 注册（通过 gateway-monitor 兼容注册），放行走正常签名验证
     const hasBotTarget = (webhookTargets.get(path) ?? []).length > 0;
     const hasAgentTarget = (agentTargets.get(path) ?? []).length > 0;
@@ -2514,7 +2514,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
       if (req.method === "GET") {
         const echostr = query.get("echostr") ?? "";
         const signatureMatches = targets.filter((target) =>
-          verifyWecomSignature({
+          verifyWeComSignature({
             token: target.agent.token,
             timestamp,
             nonce,
@@ -2546,7 +2546,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
         }
         const selected = signatureMatches[0]!;
         try {
-          const plain = decryptWecomEncrypted({
+          const plain = decryptWeComEncrypted({
             encodingAESKey: selected.agent.encodingAESKey,
             receiveId: selected.agent.corpId,
             encrypt: echostr,
@@ -2584,7 +2584,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
       }
 
       const signatureMatches = targets.filter((target) =>
-        verifyWecomSignature({
+        verifyWeComSignature({
           token: target.agent.token,
           timestamp,
           nonce,
@@ -2619,7 +2619,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
       let decrypted = "";
       let parsed: ReturnType<typeof parseXml> | null = null;
       try {
-        decrypted = decryptWecomEncrypted({
+        decrypted = decryptWeComEncrypted({
           encodingAESKey: selected.agent.encodingAESKey,
           receiveId: selected.agent.corpId,
           encrypt: encrypted,
@@ -2649,7 +2649,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
         );
       }
 
-      const core = getWecomRuntime();
+      const core = getWeComRuntime();
       selected.runtime.log?.(
         `[wecom] inbound(agent): reqId=${reqId} method=${req.method ?? "UNKNOWN"} remote=${remote} timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${hasSig ? "yes" : "no"} accountId=${selected.agent.accountId}`,
       );
@@ -2691,7 +2691,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
     const echostr = query.get("echostr") ?? "";
     const signatureMatches = targets.filter((target) =>
       target.account.token &&
-      verifyWecomSignature({ token: target.account.token, timestamp, nonce, encrypt: echostr, signature }),
+      verifyWeComSignature({ token: target.account.token, timestamp, nonce, encrypt: echostr, signature }),
     );
     if (signatureMatches.length !== 1) {
       const reason: RouteFailureReason =
@@ -2717,7 +2717,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
     }
     const target = signatureMatches[0]!;
     try {
-      const plain = decryptWecomEncrypted({ encodingAESKey: target.account.encodingAESKey, receiveId: target.account.receiveId, encrypt: echostr });
+      const plain = decryptWeComEncrypted({ encodingAESKey: target.account.encodingAESKey, receiveId: target.account.receiveId, encrypt: echostr });
       res.statusCode = 200;
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.end(plain);
@@ -2746,7 +2746,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
   );
   const signatureMatches = targets.filter((target) =>
     target.account.token &&
-    verifyWecomSignature({ token: target.account.token, timestamp, nonce, encrypt, signature }),
+    verifyWeComSignature({ token: target.account.token, timestamp, nonce, encrypt, signature }),
   );
   if (signatureMatches.length !== 1) {
     const reason: RouteFailureReason =
@@ -2772,14 +2772,14 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
   }
 
   const target = signatureMatches[0]!;
-  let msg: WecomInboundMessage;
+  let msg: WeComInboundMessage;
   try {
-    const plain = decryptWecomEncrypted({
+    const plain = decryptWeComEncrypted({
       encodingAESKey: target.account.encodingAESKey,
       receiveId: target.account.receiveId,
       encrypt,
     });
-    msg = parseWecomPlainMessage(plain);
+    msg = parseWeComPlainMessage(plain);
   } catch {
     res.statusCode = 400;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -2798,7 +2798,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
 
   logInfo(target, `inbound(bot): reqId=${reqId} selectedAccount=${target.account.accountId} path=${path}`);
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
-  const proxyUrl = resolveWecomEgressProxyUrl(target.config);
+  const proxyUrl = resolveWeComEgressProxyUrl(target.config);
 
   // Handle Event
   if (msgtype === "event") {
@@ -2827,7 +2827,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
       const streamId = streamStore.createStream({ msgid });
       streamStore.markStarted(streamId);
       storeActiveReply(streamId, msg.response_url);
-      const core = getWecomRuntime();
+      const core = getWeComRuntime();
       startAgentForStream({
         target: { ...target, core },
         accountId: target.account.accountId,
@@ -2862,7 +2862,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
     if (!decision.shouldProcess) {
       logInfo(
         target,
-        `inbound: skipped msgtype=${msgtype} reason=${decision.reason} chattype=${String(msg.chattype ?? "")} chatid=${String(msg.chatid ?? "")} from=${resolveWecomSenderUserId(msg) || "N/A"}`,
+        `inbound: skipped msgtype=${msgtype} reason=${decision.reason} chattype=${String(msg.chattype ?? "")} chatid=${String(msg.chatid ?? "")} from=${resolveWeComSenderUserId(msg) || "N/A"}`,
       );
       jsonOk(res, buildEncryptedJsonReply({ account: target.account, plaintextJson: {}, nonce, timestamp }));
       return true;

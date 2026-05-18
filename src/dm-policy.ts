@@ -6,9 +6,9 @@
 
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import type { WSClient, WsFrame } from "@wecom/aibot-node-sdk";
-import { getWecomRuntime } from "./runtime.js";
+import { getWeComRuntime } from "./runtime.js";
 import { CHANNEL_ID } from "./types/constants.js";
-import type { ResolvedWecomAccount } from "./types/index.js";
+import type { ResolvedWeComAccount } from "./types/index.js";
 import { sendWeComReply } from "./message-sender.js";
 import { isSenderAllowed } from "./group-policy.js";
 
@@ -37,13 +37,13 @@ export interface DmPolicyCheckResult {
 export async function checkDmPolicy(params: {
   senderId: string;
   isGroup: boolean;
-  account: ResolvedWecomAccount;
+  account: ResolvedWeComAccount;
   wsClient: WSClient;
   frame: WsFrame;
   runtime: RuntimeEnv;
 }): Promise<DmPolicyCheckResult> {
   const { senderId, isGroup, account, wsClient, frame, runtime } = params;
-  const core = getWecomRuntime();
+  const core = getWeComRuntime();
 
   // 群聊消息不检查 DM Policy
   if (isGroup) {

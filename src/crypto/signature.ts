@@ -11,7 +11,7 @@ function sha1Hex(input: string): string {
 /**
  * 计算 WeCom 消息签名
  */
-export function computeWecomMsgSignature(params: {
+export function computeWeComMsgSignature(params: {
     token: string;
     timestamp: string;
     nonce: string;
@@ -26,14 +26,14 @@ export function computeWecomMsgSignature(params: {
 /**
  * 验证 WeCom 消息签名
  */
-export function verifyWecomSignature(params: {
+export function verifyWeComSignature(params: {
     token: string;
     timestamp: string;
     nonce: string;
     encrypt: string;
     signature: string;
 }): boolean {
-    const expected = computeWecomMsgSignature({
+    const expected = computeWeComMsgSignature({
         token: params.token,
         timestamp: params.timestamp,
         nonce: params.nonce,

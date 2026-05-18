@@ -81,7 +81,7 @@
 ### 1.1 安装插件
 
 ```bash
-openclaw plugins install @mocrane/wecom
+openclaw plugins install @partme.ai/wecom
 openclaw plugins enable wecom
 ```
 

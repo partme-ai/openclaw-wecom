@@ -1,12 +1,15 @@
-import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { emptyPluginConfigSchema, ensureConfigHelpers } from "./src/compat/plugin-sdk-shim.js";
 
-import { handleWecomWebhookRequest } from "./src/monitor.js";
-import { setWecomRuntime } from "./src/runtime.js";
+import { handleWeComWebhookRequest } from "./src/monitor.js";
+import { handleWecomWebhookRequest as handleWecomBotWebhook } from "./src/webhook/index.js";
+import { setWeComRuntime } from "./src/runtime.js";
 import { wecomPlugin } from "./src/channel.js";
 import { createWeComMcpTool } from "./src/mcp/index.js";
 import { getSessionChatInfo } from "./src/monitor/state.js";
-import { CHANNEL_ID } from "./src/types/constants.js";
+import { createWeComAgentWebhookHandler } from "./src/agent/webhook.js";
+import { CHANNEL_ID, WEBHOOK_PATHS } from "./src/types/constants.js";
 
 const plugin = {
   id: "wecom",
@@ -29,13 +32,38 @@ const plugin = {
     // 有充足的异步间隙）。
     void ensureConfigHelpers();
 
-    setWecomRuntime(api.runtime);
+    setWeComRuntime(api.runtime);
     api.registerChannel({ plugin: wecomPlugin });
+
+    // ── Agent webhook HTTP 路由 ────────────────────────────────────────
+    const agentWebhookHandler = createWeComAgentWebhookHandler(api.runtime);
+    const agentRoutes = [WEBHOOK_PATHS.AGENT_PLUGIN, WEBHOOK_PATHS.AGENT];
+    for (const path of agentRoutes) {
+      api.registerHttpRoute({
+        path,
+        handler: agentWebhookHandler,
+        auth: "plugin",
+        match: "prefix",
+      });
+    }
+
+    // ── Bot webhook HTTP 路由（新 webhook 模块，支持多账号签名匹配） ──
+    const botWebhookRoutes = [WEBHOOK_PATHS.BOT_PLUGIN, WEBHOOK_PATHS.BOT_ALT, WEBHOOK_PATHS.BOT];
+    for (const routePath of botWebhookRoutes) {
+      api.registerHttpRoute({
+        path: routePath,
+        handler: handleWecomBotWebhook,
+        auth: "plugin",
+        match: "prefix",
+      });
+    }
+
+    // ── 历史兼容路由（保留 monitor.ts 统一入口） ─────────────────────
     const routes = ["/plugins/wecom", "/wecom"];
     for (const path of routes) {
       api.registerHttpRoute({
         path,
-        handler: handleWecomWebhookRequest,
+        handler: handleWeComWebhookRequest,
         auth: "plugin",
         match: "prefix",
       });

@@ -121,3 +121,19 @@ export const CRYPTO = {
     /** AES Key 长度 */
     AES_KEY_LENGTH: 32,
 } as const;
+
+// ============================================================================
+// 消息状态管理配置
+// ============================================================================
+
+/** messageStates Map 条目的最大 TTL（毫秒），防止内存泄漏 */
+export const MESSAGE_STATE_TTL_MS = 10 * 60 * 1000;
+
+/** messageStates Map 清理间隔（毫秒） */
+export const MESSAGE_STATE_CLEANUP_INTERVAL_MS = 60_000;
+
+/** messageStates Map 最大条目数 */
+export const MESSAGE_STATE_MAX_SIZE = 500;
+
+/** WebSocket 全局实例键 */
+export const GLOBAL_WS_CLIENT_KEY = "__wecom_openclaw_ws_client_instances" as const;

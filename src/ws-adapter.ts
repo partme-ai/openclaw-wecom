@@ -5,7 +5,7 @@
  *
  * SDK WsFrame 事件
  *   ↓
- * ws-adapter 转换为 WecomBotInboundMessage 格式
+ * ws-adapter 转换为 WeComBotInboundMessage 格式
  *   ↓
  * 复用 monitor.ts 中的 shouldProcessBotInboundMessage → buildInboundBody
  *   → streamStore.addPendingMessage → flushPending 管线
@@ -27,11 +27,11 @@ import type {
 } from "@wecom/aibot-node-sdk";
 import type { EnterChatEvent, TemplateCardEventData } from "@wecom/aibot-node-sdk";
 
-import type { ResolvedBotAccount, WecomNetworkConfig, WecomBotInboundMessage } from "./types/index.js";
-import type { WecomRuntimeEnv, WecomWebhookTarget, StreamState } from "./monitor/types.js";
+import type { ResolvedBotAccount, WeComNetworkConfig, WeComBotInboundMessage } from "./types/index.js";
+import type { WeComRuntimeEnv, WeComWebhookTarget, StreamState } from "./monitor/types.js";
 import { shouldProcessBotInboundMessage, buildInboundBody } from "./monitor.js";
 import { monitorState, setWeComWebSocket, deleteWeComWebSocket } from "./monitor/state.js";
-import { getWecomRuntime } from "./runtime.js";
+import { getWeComRuntime } from "./runtime.js";
 import { fetchAndSaveMcpConfig } from "./mcp-config.js";
 
 // ─── Constants ─────────────────────────────────────────────────────────
@@ -162,13 +162,13 @@ function watchStreamReply(params: {
     setTimeout(tick, POLL_INTERVAL_MS);
 }
 
-// ─── SDK Message → WecomBotInboundMessage Conversion ───────────────────
+// ─── SDK Message → WeComBotInboundMessage Conversion ───────────────────
 
 /**
- * 将 SDK 的 WsFrame<BaseMessage> 转换为现有的 WecomBotInboundMessage 格式
+ * 将 SDK 的 WsFrame<BaseMessage> 转换为现有的 WeComBotInboundMessage 格式
  */
-function convertSdkMessageToInbound(body: BaseMessage): WecomBotInboundMessage {
-    const base: WecomBotInboundMessage = {
+function convertSdkMessageToInbound(body: BaseMessage): WeComBotInboundMessage {
+    const base: WeComBotInboundMessage = {
         msgid: body.msgid,
         aibotid: body.aibotid,
         chattype: body.chattype,
@@ -214,7 +214,7 @@ function convertSdkMessageToInbound(body: BaseMessage): WecomBotInboundMessage {
 function setupMessageHandler(params: {
     wsClient: WSClient;
     accountId: string;
-    target: WecomWebhookTarget;
+    target: WeComWebhookTarget;
 }) {
     const { wsClient, accountId, target } = params;
     const streamStore = monitorState.streamStore;
@@ -301,7 +301,7 @@ function setupMessageHandler(params: {
 function setupEventHandler(params: {
     wsClient: WSClient;
     accountId: string;
-    target: WecomWebhookTarget;
+    target: WeComWebhookTarget;
     welcomeText?: string;
 }) {
     const { wsClient, accountId, target, welcomeText } = params;
@@ -346,7 +346,7 @@ function setupEventHandler(params: {
             s.wsMode = true;
         });
 
-        const syntheticMsg: WecomBotInboundMessage = {
+        const syntheticMsg: WeComBotInboundMessage = {
             msgid,
             aibotid: body.aibotid,
             chattype: body.chattype,
@@ -358,7 +358,7 @@ function setupEventHandler(params: {
 
         let core: PluginRuntime;
         try {
-            core = getWecomRuntime();
+            core = getWeComRuntime();
         } catch {
             target.runtime.error?.(`[${accountId}] ws-event: runtime not ready for template_card_event`);
             streamStore.markFinished(streamId);
@@ -373,7 +373,7 @@ function setupEventHandler(params: {
 
         // 先清除之前创建的 stream（addPendingMessage 会创建新的）
         // 直接用 addPendingMessage 复用完整管线
-        const enrichedTarget: WecomWebhookTarget = { ...target, core };
+        const enrichedTarget: WeComWebhookTarget = { ...target, core };
         const { streamId: actualStreamId } = streamStore.addPendingMessage({
             conversationKey,
             target: enrichedTarget,
@@ -413,11 +413,11 @@ export type StartWsClientParams = {
     secret: string;
     account: ResolvedBotAccount;
     config: OpenClawConfig;
-    runtime: WecomRuntimeEnv;
+    runtime: WeComRuntimeEnv;
     core: PluginRuntime;
     statusSink?: (patch: { lastInboundAt?: number; lastOutboundAt?: number }) => void;
     welcomeText?: string;
-    network?: WecomNetworkConfig;
+    network?: WeComNetworkConfig;
 };
 
 /**
@@ -450,8 +450,8 @@ export function startWsClient(params: StartWsClientParams): () => void {
     // 同步到 monitor/state 供 MCP 拦截器等模块使用
     setWeComWebSocket(accountId, wsClient);
 
-    // 构建 WecomWebhookTarget 以复用 monitor 管线
-    const target: WecomWebhookTarget = {
+    // 构建 WeComWebhookTarget 以复用 monitor 管线
+    const target: WeComWebhookTarget = {
         account,
         config,
         runtime,

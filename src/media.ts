@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import { decodeEncodingAESKey, pkcs7Unpad, WECOM_PKCS7_BLOCK_SIZE } from "./crypto.js";
-import { readResponseBodyAsBuffer, wecomFetch, type WecomHttpOptions } from "./http.js";
+import { readResponseBodyAsBuffer, wecomFetch, type WeComHttpOptions } from "./http.js";
 
-export type DecryptedWecomMedia = {
+export type DecryptedWeComMedia = {
     buffer: Buffer;
     sourceContentType?: string;
     sourceFilename?: string;
@@ -38,18 +38,18 @@ function extractFilenameFromContentDisposition(disposition?: string | null): str
 }
 
 /**
- * **decryptWecomMedia (解密企业微信媒体文件)**
+ * **decryptWeComMedia (解密企业微信媒体文件)**
  * 
  * 简易封装：直接传入 URL 和 AES Key 下载并解密。
  * 企业微信媒体文件使用与消息体相同的 AES-256-CBC 加密，IV 为 AES Key 前16字节。
  * 解密后需移除 PKCS#7 填充。
  */
-export async function decryptWecomMedia(url: string, encodingAESKey: string, maxBytes?: number): Promise<Buffer> {
-    return decryptWecomMediaWithHttp(url, encodingAESKey, { maxBytes });
+export async function decryptWeComMedia(url: string, encodingAESKey: string, maxBytes?: number): Promise<Buffer> {
+    return decryptWeComMediaWithHttp(url, encodingAESKey, { maxBytes });
 }
 
 /**
- * **decryptWecomMediaWithHttp (解密企业微信媒体 - 高级)**
+ * **decryptWeComMediaWithHttp (解密企业微信媒体 - 高级)**
  * 
  * 支持传递 HTTP 选项（如 Proxy、Timeout）。
  * 流程：
@@ -58,26 +58,26 @@ export async function decryptWecomMedia(url: string, encodingAESKey: string, max
  * 3. AES-CBC 解密。
  * 4. PKCS#7 去除填充。
  */
-export async function decryptWecomMediaWithHttp(
+export async function decryptWeComMediaWithHttp(
     url: string,
     encodingAESKey: string,
-    params?: { maxBytes?: number; http?: WecomHttpOptions },
+    params?: { maxBytes?: number; http?: WeComHttpOptions },
 ): Promise<Buffer> {
-    const decrypted = await decryptWecomMediaWithMeta(url, encodingAESKey, params);
+    const decrypted = await decryptWeComMediaWithMeta(url, encodingAESKey, params);
     return decrypted.buffer;
 }
 
 /**
- * **decryptWecomMediaWithMeta (解密企业微信媒体并返回源信息)**
+ * **decryptWeComMediaWithMeta (解密企业微信媒体并返回源信息)**
  * 
  * 在返回解密结果的同时，保留下载响应中的元信息（content-type / filename / final url），
  * 供上层更准确地推断文件后缀和 MIME。
  */
-export async function decryptWecomMediaWithMeta(
+export async function decryptWeComMediaWithMeta(
     url: string,
     encodingAESKey: string,
-    params?: { maxBytes?: number; http?: WecomHttpOptions },
-): Promise<DecryptedWecomMedia> {
+    params?: { maxBytes?: number; http?: WeComHttpOptions },
+): Promise<DecryptedWeComMedia> {
     // 1. Download encrypted content
     const res = await wecomFetch(url, undefined, { ...params?.http, timeoutMs: params?.http?.timeoutMs ?? 15_000 });
     if (!res.ok) {

@@ -3,11 +3,11 @@
  */
 
 import type {
-    WecomBotConfig,
-    WecomAgentConfig,
-    WecomDmConfig,
-    WecomNetworkConfig,
-    WecomAccountConfig,
+    WeComBotConfig,
+    WeComAgentConfig,
+    WeComDmConfig,
+    WeComNetworkConfig,
+    WeComAccountConfig,
 } from "./config.js";
 
 /**
@@ -27,9 +27,9 @@ export type ResolvedBotAccount = {
     /** 接收者 ID */
     receiveId: string;
     /** 原始配置 */
-    config: WecomBotConfig;
+    config: WeComBotConfig;
     /** 网络配置（来自 channels.wecom.network） */
-    network?: WecomNetworkConfig;
+    network?: WeComNetworkConfig;
 
     // --- 长链接模式 (WebSocket) ---
 
@@ -62,13 +62,13 @@ export type ResolvedAgentAccount = {
     /** 回调加密密钥 */
     encodingAESKey: string;
     /** 原始配置 */
-    config: WecomAgentConfig;
+    config: WeComAgentConfig;
     /** 网络配置（来自 channels.wecom.network） */
-    network?: WecomNetworkConfig;
+    network?: WeComNetworkConfig;
 };
 
 /** Matrix/Legacy 的统一账号解析结果 */
-export type ResolvedWecomAccount = {
+export type ResolvedWeComAccount = {
     /** 账号 ID（用于 bindings.match.accountId） */
     accountId: string;
     /** 展示名称 */
@@ -78,7 +78,7 @@ export type ResolvedWecomAccount = {
     /** 是否具备至少一种可用能力（bot/agent） */
     configured: boolean;
     /** 原始账号配置（Matrix 条目或 Legacy 聚合） */
-    config: WecomAccountConfig;
+    config: WeComAccountConfig;
     /** Bot 能力 */
     bot?: ResolvedBotAccount;
     /** Agent 能力 */
@@ -91,13 +91,13 @@ export type ResolvedMode = "disabled" | "legacy" | "matrix";
 /**
  * 已解析的模式状态
  */
-export type ResolvedWecomAccounts = {
+export type ResolvedWeComAccounts = {
     /** 当前模式 */
     mode: ResolvedMode;
     /** 默认账号 ID */
     defaultAccountId: string;
     /** 账号集合（Legacy 下仅 default） */
-    accounts: Record<string, ResolvedWecomAccount>;
+    accounts: Record<string, ResolvedWeComAccount>;
     /**
      * 向后兼容：默认账号的 bot（历史调用点仍可读取）。
      * Matrix 下等价于 defaultAccountId 对应账号的 bot。
@@ -111,4 +111,4 @@ export type ResolvedWecomAccounts = {
 };
 
 // Re-export 用于向后兼容
-export type { WecomDmConfig } from "./config.js";
+export type { WeComDmConfig } from "./config.js";

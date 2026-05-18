@@ -14,7 +14,7 @@
  * 这样 LLM 只看到轻量的文件路径信息，Skill 可通过文件路径读取完整内容。
  */
 
-import { getWecomRuntime } from "../../runtime.js";
+import { getWeComRuntime } from "../../runtime.js";
 import type { CallInterceptor, CallContext } from "./types.js";
 
 // ============================================================================
@@ -78,7 +78,7 @@ async function interceptExportResponse(result: unknown): Promise<unknown> {
   // 4. 将 markdown 内容通过 saveMediaBuffer 保存到本地媒体目录
   //    使用 text/markdown 类型，与 msg-media 拦截器保持一致的路径管理
   const buffer = Buffer.from(markdownContent, "utf-8");
-  const core = getWecomRuntime();
+  const core = getWeComRuntime();
   const saved = await core.channel.media.saveMediaBuffer(
     buffer,
     "text/markdown",

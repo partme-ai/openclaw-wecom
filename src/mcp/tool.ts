@@ -13,7 +13,7 @@
  *   wecom_mcp call contact getContact '{}'
  */
 
-import { sendJsonRpc, type McpToolInfo } from "./transport.js";
+import { sendJsonRpc, clearCategoryCache, type McpToolInfo } from "./transport.js";
 import { cleanSchemaForGemini } from "./schema.js";
 import { resolveBeforeCall, runAfterCall } from "./interceptors/index.js";
 import type { CallContext } from "./interceptors/types.js";
