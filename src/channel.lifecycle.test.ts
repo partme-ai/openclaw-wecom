@@ -8,7 +8,7 @@ import {
 } from "openclaw/plugin-sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { createRuntimeEnv } from "../../test-utils/runtime-env.js";
+import { createRuntimeEnv } from "../test-utils/runtime-env.js";
 import { computeWeComMsgSignature, encryptWeComPlaintext } from "./crypto.js";
 import { wecomPlugin } from "./channel.js";
 import { handleWeComWebhookRequest } from "./monitor.js";
