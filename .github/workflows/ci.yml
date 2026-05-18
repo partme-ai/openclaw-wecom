@@ -24,7 +24,7 @@ jobs:
       - name: Install Dependencies
         run: |
           npm install
-          npm ls openclaw 2>/dev/null || echo "openclaw peer dep check done"
+          npm install openclaw@latest
 
       - name: TypeScript Check
         run: npx tsc --noEmit
