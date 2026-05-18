@@ -1,10 +1,10 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
-import type { ResolvedWecomAccount } from "./types/index.js";
+import type { ResolvedWeComAccount } from "./types/index.js";
 import {
-  listWecomAccountIds as listWecomAccountIdsFromConfig,
-  resolveDefaultWecomAccountId as resolveDefaultWecomAccountIdFromConfig,
-  resolveWecomAccount as resolveWecomAccountFromConfig,
+  listWeComAccountIds as listWeComAccountIdsFromConfig,
+  resolveDefaultWeComAccountId as resolveDefaultWeComAccountIdFromConfig,
+  resolveWeComAccount as resolveWeComAccountFromConfig,
 } from "./config/accounts.js";
 
 /**
@@ -12,23 +12,23 @@ import {
  * Keep this file as a thin wrapper so older imports continue to work,
  * while all account logic stays single-sourced in `src/config/accounts.ts`.
  */
-export function listWecomAccountIds(cfg: OpenClawConfig): string[] {
-  return listWecomAccountIdsFromConfig(cfg);
+export function listWeComAccountIds(cfg: OpenClawConfig): string[] {
+  return listWeComAccountIdsFromConfig(cfg);
 }
 
-export function resolveDefaultWecomAccountId(cfg: OpenClawConfig): string {
-  return resolveDefaultWecomAccountIdFromConfig(cfg);
+export function resolveDefaultWeComAccountId(cfg: OpenClawConfig): string {
+  return resolveDefaultWeComAccountIdFromConfig(cfg);
 }
 
-export function resolveWecomAccount(params: {
+export function resolveWeComAccount(params: {
   cfg: OpenClawConfig;
   accountId?: string | null;
-}): ResolvedWecomAccount {
-  return resolveWecomAccountFromConfig(params);
+}): ResolvedWeComAccount {
+  return resolveWeComAccountFromConfig(params);
 }
 
-export function listEnabledWecomAccounts(cfg: OpenClawConfig): ResolvedWecomAccount[] {
-  return listWecomAccountIdsFromConfig(cfg)
-    .map((accountId) => resolveWecomAccountFromConfig({ cfg, accountId }))
+export function listEnabledWeComAccounts(cfg: OpenClawConfig): ResolvedWeComAccount[] {
+  return listWeComAccountIdsFromConfig(cfg)
+    .map((accountId) => resolveWeComAccountFromConfig({ cfg, accountId }))
     .filter((account) => account.enabled);
 }

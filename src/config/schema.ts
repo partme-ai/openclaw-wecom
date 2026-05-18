@@ -141,7 +141,7 @@ const accountSchema = z.object({
 });
 
 /** 顶层 WeCom 配置 Schema */
-export const WecomConfigSchema = bindToJsonSchema(z.object({
+export const WeComConfigSchema = bindToJsonSchema(z.object({
     enabled: z.boolean().optional(),
     bot: botSchema,
     agent: agentSchema,
@@ -153,4 +153,4 @@ export const WecomConfigSchema = bindToJsonSchema(z.object({
     dynamicAgents: dynamicAgentsSchema,
 }));
 
-export type WecomConfigInput = z.infer<typeof WecomConfigSchema>;
+export type WeComConfigInput = z.infer<typeof WeComConfigSchema>;

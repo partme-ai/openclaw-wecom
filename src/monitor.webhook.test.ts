@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
-import type { ResolvedWecomAccount } from "./types/index.js";
-import { computeWecomMsgSignature, decryptWecomEncrypted, encryptWecomPlaintext } from "./crypto.js";
-import { handleWecomWebhookRequest, registerAgentWebhookTarget, registerWecomWebhookTarget } from "./monitor.js";
+import type { ResolvedWeComAccount } from "./types/index.js";
+import { computeWeComMsgSignature, decryptWeComEncrypted, encryptWeComPlaintext } from "./crypto.js";
+import { handleWeComWebhookRequest, registerAgentWebhookTarget, registerWeComWebhookTarget } from "./monitor.js";
 
 function createMockRequest(params: {
   method: "GET" | "POST";
@@ -50,12 +50,12 @@ function createMockResponse(): ServerResponse & {
   return res as any;
 }
 
-describe("handleWecomWebhookRequest", () => {
+describe("handleWeComWebhookRequest", () => {
   const token = "test-token";
   const encodingAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
 
   it("handles GET url verification", async () => {
-    const account: ResolvedWecomAccount = {
+    const account: ResolvedWeComAccount = {
       accountId: "default",
       name: "Test",
       enabled: true,
@@ -66,7 +66,7 @@ describe("handleWecomWebhookRequest", () => {
       config: { webhookPath: "/hook", token, encodingAESKey },
     };
 
-    const unregister = registerWecomWebhookTarget({
+    const unregister = registerWeComWebhookTarget({
       account,
       config: {} as OpenClawConfig,
       runtime: {},
@@ -77,18 +77,18 @@ describe("handleWecomWebhookRequest", () => {
     try {
       const timestamp = "13500001234";
       const nonce = "123412323";
-      const echostr = encryptWecomPlaintext({
+      const echostr = encryptWeComPlaintext({
         encodingAESKey,
         receiveId: "",
         plaintext: "ping",
       });
-      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt: echostr });
+      const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt: echostr });
       const req = createMockRequest({
         method: "GET",
         url: `/hook?msg_signature=${encodeURIComponent(msg_signature)}&timestamp=${encodeURIComponent(timestamp)}&nonce=${encodeURIComponent(nonce)}&echostr=${encodeURIComponent(echostr)}`,
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(200);
       expect(res._getData()).toBe("ping");
@@ -98,7 +98,7 @@ describe("handleWecomWebhookRequest", () => {
   });
 
   it("handles POST callback and returns encrypted stream placeholder", async () => {
-    const account: ResolvedWecomAccount = {
+    const account: ResolvedWeComAccount = {
       accountId: "default",
       name: "Test",
       enabled: true,
@@ -109,7 +109,7 @@ describe("handleWecomWebhookRequest", () => {
       config: { webhookPath: "/hook", token, encodingAESKey },
     };
 
-    const unregister = registerWecomWebhookTarget({
+    const unregister = registerWeComWebhookTarget({
       account,
       config: {} as OpenClawConfig,
       runtime: {},
@@ -129,8 +129,8 @@ describe("handleWecomWebhookRequest", () => {
         msgtype: "text",
         text: { content: "hello" },
       });
-      const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
-      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+      const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+      const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
 
       const req = createMockRequest({
         method: "POST",
@@ -138,7 +138,7 @@ describe("handleWecomWebhookRequest", () => {
         body: { encrypt },
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(200);
 
@@ -148,7 +148,7 @@ describe("handleWecomWebhookRequest", () => {
       expect(typeof json.timestamp).toBe("string");
       expect(typeof json.nonce).toBe("string");
 
-      const replyPlain = decryptWecomEncrypted({
+      const replyPlain = decryptWeComEncrypted({
         encodingAESKey,
         receiveId: "",
         encrypt: json.encrypt,
@@ -160,7 +160,7 @@ describe("handleWecomWebhookRequest", () => {
       expect(typeof reply.stream?.id).toBe("string");
       expect(reply.stream?.id.length).toBeGreaterThan(0);
 
-      const expectedSig = computeWecomMsgSignature({
+      const expectedSig = computeWeComMsgSignature({
         token,
         timestamp: String(json.timestamp),
         nonce: String(json.nonce),
@@ -173,7 +173,7 @@ describe("handleWecomWebhookRequest", () => {
   });
 
   it("supports custom streamPlaceholderContent", async () => {
-    const account: ResolvedWecomAccount = {
+    const account: ResolvedWeComAccount = {
       accountId: "default",
       name: "Test",
       enabled: true,
@@ -184,7 +184,7 @@ describe("handleWecomWebhookRequest", () => {
       config: { webhookPath: "/hook", token, encodingAESKey, streamPlaceholderContent: "正在思考..." },
     };
 
-    const unregister = registerWecomWebhookTarget({
+    const unregister = registerWeComWebhookTarget({
       account,
       config: {} as OpenClawConfig,
       runtime: {},
@@ -204,8 +204,8 @@ describe("handleWecomWebhookRequest", () => {
         msgtype: "text",
         text: { content: "hello" },
       });
-      const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
-      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+      const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+      const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
 
       const req = createMockRequest({
         method: "POST",
@@ -213,12 +213,12 @@ describe("handleWecomWebhookRequest", () => {
         body: { encrypt },
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(200);
 
       const json = JSON.parse(res._getData()) as any;
-      const replyPlain = decryptWecomEncrypted({
+      const replyPlain = decryptWeComEncrypted({
         encodingAESKey,
         receiveId: "",
         encrypt: json.encrypt,
@@ -233,7 +233,7 @@ describe("handleWecomWebhookRequest", () => {
   });
 
   it("skips bot callbacks with missing sender and returns empty ack", async () => {
-    const account: ResolvedWecomAccount = {
+    const account: ResolvedWeComAccount = {
       accountId: "default",
       name: "Test",
       enabled: true,
@@ -244,7 +244,7 @@ describe("handleWecomWebhookRequest", () => {
       config: { webhookPath: "/hook", token, encodingAESKey },
     };
 
-    const unregister = registerWecomWebhookTarget({
+    const unregister = registerWeComWebhookTarget({
       account,
       config: {} as OpenClawConfig,
       runtime: {},
@@ -262,8 +262,8 @@ describe("handleWecomWebhookRequest", () => {
         msgtype: "text",
         text: { content: "hello" },
       });
-      const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
-      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+      const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+      const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
 
       const req = createMockRequest({
         method: "POST",
@@ -271,12 +271,12 @@ describe("handleWecomWebhookRequest", () => {
         body: { encrypt },
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(200);
 
       const json = JSON.parse(res._getData()) as any;
-      const replyPlain = decryptWecomEncrypted({
+      const replyPlain = decryptWeComEncrypted({
         encodingAESKey,
         receiveId: "",
         encrypt: json.encrypt,
@@ -303,7 +303,7 @@ describe("handleWecomWebhookRequest", () => {
       },
     };
 
-    const unregister = registerWecomWebhookTarget({
+    const unregister = registerWeComWebhookTarget({
       account,
       config: {} as OpenClawConfig,
       runtime: {},
@@ -325,8 +325,8 @@ describe("handleWecomWebhookRequest", () => {
           msgtype: "text",
           text: { content: "hello" },
         });
-        const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
-        const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+        const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+        const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
         return createMockRequest({
           method: "POST",
           url: `/hook-merge?msg_signature=${encodeURIComponent(msg_signature)}&timestamp=${encodeURIComponent(timestamp)}&nonce=${encodeURIComponent(nonce)}`,
@@ -335,17 +335,17 @@ describe("handleWecomWebhookRequest", () => {
       };
 
       const res1 = createMockResponse();
-      await handleWecomWebhookRequest(makeReq("MSGID-M1"), res1);
+      await handleWeComWebhookRequest(makeReq("MSGID-M1"), res1);
       const json1 = JSON.parse(res1._getData()) as any;
-      const replyPlain1 = decryptWecomEncrypted({ encodingAESKey, receiveId: "", encrypt: json1.encrypt });
+      const replyPlain1 = decryptWeComEncrypted({ encodingAESKey, receiveId: "", encrypt: json1.encrypt });
       const reply1 = JSON.parse(replyPlain1) as any;
       expect(reply1.msgtype).toBe("stream");
       expect(reply1.stream?.finish).toBe(false);
 
       const res2 = createMockResponse();
-      await handleWecomWebhookRequest(makeReq("MSGID-M2"), res2);
+      await handleWeComWebhookRequest(makeReq("MSGID-M2"), res2);
       const json2 = JSON.parse(res2._getData()) as any;
-      const replyPlain2 = decryptWecomEncrypted({ encodingAESKey, receiveId: "", encrypt: json2.encrypt });
+      const replyPlain2 = decryptWeComEncrypted({ encodingAESKey, receiveId: "", encrypt: json2.encrypt });
       const reply2 = JSON.parse(replyPlain2) as any;
       expect(reply2.msgtype).toBe("stream");
       expect(reply2.stream?.finish).toBe(false);
@@ -353,9 +353,9 @@ describe("handleWecomWebhookRequest", () => {
       expect(reply2.stream?.content).toContain("排队");
 
       const res3 = createMockResponse();
-      await handleWecomWebhookRequest(makeReq("MSGID-M3"), res3);
+      await handleWeComWebhookRequest(makeReq("MSGID-M3"), res3);
       const json3 = JSON.parse(res3._getData()) as any;
-      const replyPlain3 = decryptWecomEncrypted({ encodingAESKey, receiveId: "", encrypt: json3.encrypt });
+      const replyPlain3 = decryptWeComEncrypted({ encodingAESKey, receiveId: "", encrypt: json3.encrypt });
       const reply3 = JSON.parse(replyPlain3) as any;
       expect(reply3.msgtype).toBe("stream");
       // merged follow-up should get its own ack stream (not finished yet);
@@ -373,7 +373,7 @@ describe("handleWecomWebhookRequest", () => {
     const token = "MATRIX-TOKEN";
     const encodingAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
 
-    const unregisterA = registerWecomWebhookTarget({
+    const unregisterA = registerWeComWebhookTarget({
       account: {
         accountId: "acct-a",
         enabled: true,
@@ -392,7 +392,7 @@ describe("handleWecomWebhookRequest", () => {
       core: {} as any,
       path: "/plugins/wecom/bot/acct-a",
     });
-    const unregisterB = registerWecomWebhookTarget({
+    const unregisterB = registerWeComWebhookTarget({
       account: {
         accountId: "acct-b",
         enabled: true,
@@ -424,20 +424,20 @@ describe("handleWecomWebhookRequest", () => {
         msgtype: "text",
         text: { content: "hello plugin account path" },
       });
-      const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
-      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+      const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+      const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
       const req = createMockRequest({
         method: "POST",
         url: `/plugins/wecom/bot/acct-b?msg_signature=${encodeURIComponent(msg_signature)}&timestamp=${encodeURIComponent(timestamp)}&nonce=${encodeURIComponent(nonce)}`,
         body: { encrypt },
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(200);
 
       const json = JSON.parse(res._getData()) as any;
-      const replyPlain = decryptWecomEncrypted({
+      const replyPlain = decryptWeComEncrypted({
         encodingAESKey,
         receiveId: "",
         encrypt: json.encrypt,
@@ -454,7 +454,7 @@ describe("handleWecomWebhookRequest", () => {
     const token = "MATRIX-TOKEN-PLUGIN";
     const encodingAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
 
-    const unregisterA = registerWecomWebhookTarget({
+    const unregisterA = registerWeComWebhookTarget({
       account: {
         accountId: "acct-a",
         enabled: true,
@@ -473,7 +473,7 @@ describe("handleWecomWebhookRequest", () => {
       core: {} as any,
       path: "/plugins/wecom/bot/acct-a",
     });
-    const unregisterB = registerWecomWebhookTarget({
+    const unregisterB = registerWeComWebhookTarget({
       account: {
         accountId: "acct-b",
         enabled: true,
@@ -505,20 +505,20 @@ describe("handleWecomWebhookRequest", () => {
         msgtype: "text",
         text: { content: "hello matrix plugin path" },
       });
-      const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
-      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+      const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+      const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
       const req = createMockRequest({
         method: "POST",
         url: `/plugins/wecom/bot/acct-b?msg_signature=${encodeURIComponent(msg_signature)}&timestamp=${encodeURIComponent(timestamp)}&nonce=${encodeURIComponent(nonce)}`,
         body: { encrypt },
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(200);
 
       const json = JSON.parse(res._getData()) as any;
-      const replyPlain = decryptWecomEncrypted({
+      const replyPlain = decryptWeComEncrypted({
         encodingAESKey,
         receiveId: "",
         encrypt: json.encrypt,
@@ -534,7 +534,7 @@ describe("handleWecomWebhookRequest", () => {
   it("does not reject when aibotid mismatches configured value", async () => {
     const token = "MATRIX-TOKEN-2";
     const encodingAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
-    const unregister = registerWecomWebhookTarget({
+    const unregister = registerWeComWebhookTarget({
       account: {
         accountId: "acct-a",
         enabled: true,
@@ -566,15 +566,15 @@ describe("handleWecomWebhookRequest", () => {
         msgtype: "text",
         text: { content: "hello mismatch" },
       });
-      const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
-      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+      const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+      const msg_signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
       const req = createMockRequest({
         method: "POST",
         url: `/hook-matrix-mismatch?msg_signature=${encodeURIComponent(msg_signature)}&timestamp=${encodeURIComponent(timestamp)}&nonce=${encodeURIComponent(nonce)}`,
         body: { encrypt },
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(200);
     } finally {
@@ -585,7 +585,7 @@ describe("handleWecomWebhookRequest", () => {
   it("rejects legacy paths and accountless plugin paths", async () => {
     const token = "MATRIX-TOKEN-3";
     const encodingAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
-    const unregister = registerWecomWebhookTarget({
+    const unregister = registerWeComWebhookTarget({
       account: {
         accountId: "acct-a",
         enabled: true,
@@ -606,7 +606,7 @@ describe("handleWecomWebhookRequest", () => {
         url: "/wecom/bot?timestamp=t&nonce=n&msg_signature=s&echostr=e",
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(401);
       expect(JSON.parse(res._getData())).toMatchObject({
@@ -618,7 +618,7 @@ describe("handleWecomWebhookRequest", () => {
         url: "/plugins/wecom/bot?timestamp=t&nonce=n&msg_signature=s&echostr=e",
       });
       const pluginRes = createMockResponse();
-      const pluginHandled = await handleWecomWebhookRequest(pluginReq, pluginRes);
+      const pluginHandled = await handleWeComWebhookRequest(pluginReq, pluginRes);
       expect(pluginHandled).toBe(true);
       expect(pluginRes._getStatusCode()).toBe(401);
       expect(JSON.parse(pluginRes._getData())).toMatchObject({
@@ -634,7 +634,7 @@ describe("handleWecomWebhookRequest", () => {
     const timestamp = "1700002001";
     const nonce = "nonce-agent";
     const echostr = "ECHOSTR";
-    const signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt: echostr });
+    const signature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt: echostr });
 
     const unregisterA = registerAgentWebhookTarget({
       agent: {
@@ -675,7 +675,7 @@ describe("handleWecomWebhookRequest", () => {
         url: `/plugins/wecom/agent/default?msg_signature=${encodeURIComponent(signature)}&timestamp=${encodeURIComponent(timestamp)}&nonce=${encodeURIComponent(nonce)}&echostr=${encodeURIComponent(echostr)}`,
       });
       const res = createMockResponse();
-      const handled = await handleWecomWebhookRequest(req, res);
+      const handled = await handleWeComWebhookRequest(req, res);
       expect(handled).toBe(true);
       expect(res._getStatusCode()).toBe(401);
       expect(JSON.parse(res._getData())).toMatchObject({

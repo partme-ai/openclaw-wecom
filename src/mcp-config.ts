@@ -12,7 +12,7 @@ import path from "path";
 import type { WSClient } from "@wecom/aibot-node-sdk";
 import { generateReqId } from "@wecom/aibot-node-sdk";
 import { resolveFileIoHelpers } from "./compat/plugin-sdk-shim.js";
-import type { WecomRuntimeEnv } from "./monitor/types.js";
+import type { WeComRuntimeEnv } from "./monitor/types.js";
 import { withTimeout } from "./timeout.js";
 
 // ============================================================================
@@ -102,7 +102,7 @@ export async function fetchMcpConfig(
  */
 async function saveMcpConfigToPluginJson(
     config: McpConfigBody,
-    runtime: WecomRuntimeEnv,
+    runtime: WeComRuntimeEnv,
 ): Promise<void> {
     const wecomConfigDir = path.join(os.homedir(), ".openclaw", "wecomConfig");
     const wecomConfigPath = path.join(wecomConfigDir, "config.json");
@@ -163,7 +163,7 @@ async function saveMcpConfigToPluginJson(
 export async function fetchAndSaveMcpConfig(
     wsClient: WSClient,
     accountId: string,
-    runtime: WecomRuntimeEnv,
+    runtime: WeComRuntimeEnv,
 ): Promise<void> {
     try {
         runtime.log?.(`[${accountId}] Fetching MCP config...`);

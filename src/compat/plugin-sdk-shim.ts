@@ -24,7 +24,7 @@ export type { WizardPrompter } from "openclaw/plugin-sdk";
 export type {
   ChannelOutboundAdapter,
   ChannelOutboundContext,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/channel-contract";
 
 // ─── 值：emptyPluginConfigSchema（主入口始终导出） ───
 export { emptyPluginConfigSchema } from "openclaw/plugin-sdk";

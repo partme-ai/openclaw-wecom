@@ -11,16 +11,17 @@ import {
 
 import {
   DEFAULT_ACCOUNT_ID,
-  listWecomAccountIds,
-  resolveDefaultWecomAccountId,
-  resolveWecomAccount,
-  resolveWecomAccountConflict,
+  listWeComAccountIds,
+  resolveDefaultWeComAccountId,
+  resolveWeComAccount,
+  resolveWeComAccountConflict,
 } from "./config/index.js";
-import type { ResolvedWecomAccount, WecomBotConfig } from "./types/index.js";
-import { monitorWecomProvider } from "./gateway-monitor.js";
-import { setWecomBotConfig, wecomOnboardingAdapter } from "./onboarding.js";
+import type { ResolvedWeComAccount, WeComBotConfig } from "./types/index.js";
+import { monitorWeComProvider } from "./gateway-monitor.js";
+import { setWeComBotConfig, wecomOnboardingAdapter } from "./onboarding.js";
 import { wecomOutbound } from "./outbound.js";
 import { WEBHOOK_PATHS } from "./types/constants.js";
+import QRCode from "qrcode";
 
 const meta = {
   id: "wecom",
@@ -34,42 +35,41 @@ const meta = {
   quickstartAllowFrom: true,
 };
 
-function normalizeWecomMessagingTarget(raw: string): string | undefined {
+function normalizeWeComMessagingTarget(raw: string): string | undefined {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
   return trimmed.replace(/^(wecom-agent|wecom|wechatwork|wework|qywx):/i, "").trim() || undefined;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- onboarding 在 >=3.22 中已重命名为 setupWizard，
-// 但我们仍设置旧字段以兼容 <3.22 版本的 OpenClaw。
-export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
+// onboarding 在 >=3.22 中已重命名为 setupWizard，使用新字段名
+export const wecomPlugin: ChannelPlugin<ResolvedWeComAccount> = {
   id: "wecom",
   meta,
-  onboarding: wecomOnboardingAdapter as any,
+  setupWizard: wecomOnboardingAdapter as any,
   setup: {
     resolveAccountId: ({ cfg, accountId }) => {
-      return accountId?.trim() || resolveDefaultWecomAccountId(cfg as OpenClawConfig) || DEFAULT_ACCOUNT_ID;
+      return accountId?.trim() || resolveDefaultWeComAccountId(cfg as OpenClawConfig) || DEFAULT_ACCOUNT_ID;
     },
     applyAccountConfig: ({ cfg, accountId, input }) => {
       const isWsMode = input.url === "ws" || input.url === "websocket";
 
       if (isWsMode) {
         // websocket 模式: --bot-token → botId, --token → secret
-        const botConfig: WecomBotConfig = {
+        const botConfig: WeComBotConfig = {
           connectionMode: "websocket",
           botId: input.botToken?.trim() || undefined,
           secret: input.token?.trim() || undefined,
         };
-        return setWecomBotConfig(cfg as OpenClawConfig, botConfig, accountId);
+        return setWeComBotConfig(cfg as OpenClawConfig, botConfig, accountId);
       }
 
       // webhook 模式: --token → token, --access-token → encodingAESKey
-      const botConfig: WecomBotConfig = {
+      const botConfig: WeComBotConfig = {
         connectionMode: "webhook",
         token: input.token?.trim() ?? "",
         encodingAESKey: input.accessToken?.trim() ?? "",
       };
-      return setWecomBotConfig(cfg as OpenClawConfig, botConfig, accountId);
+      return setWeComBotConfig(cfg as OpenClawConfig, botConfig, accountId);
     },
     validateInput: ({ input }) => {
       const isWsMode = input.url === "ws" || input.url === "websocket";
@@ -104,9 +104,9 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
     },
   },
   config: {
-    listAccountIds: (cfg) => listWecomAccountIds(cfg as OpenClawConfig),
-    resolveAccount: (cfg, accountId) => resolveWecomAccount({ cfg: cfg as OpenClawConfig, accountId }),
-    defaultAccountId: (cfg) => resolveDefaultWecomAccountId(cfg as OpenClawConfig),
+    listAccountIds: (cfg) => listWeComAccountIds(cfg as OpenClawConfig),
+    resolveAccount: (cfg, accountId) => resolveWeComAccount({ cfg: cfg as OpenClawConfig, accountId }),
+    defaultAccountId: (cfg) => resolveDefaultWeComAccountId(cfg as OpenClawConfig),
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
       setAccountEnabledInConfigSection({
         cfg: cfg as OpenClawConfig,
@@ -126,19 +126,19 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
       if (!account.configured) {
         return false;
       }
-      return !resolveWecomAccountConflict({
+      return !resolveWeComAccountConflict({
         cfg: cfg as OpenClawConfig,
         accountId: account.accountId,
       });
     },
     unconfiguredReason: (account, cfg) =>
-      resolveWecomAccountConflict({
+      resolveWeComAccountConflict({
         cfg: cfg as OpenClawConfig,
         accountId: account.accountId,
       })?.message ?? "not configured",
     describeAccount: (account, cfg): ChannelAccountSnapshot => {
       const matrixMode = account.accountId !== DEFAULT_ACCOUNT_ID;
-      const conflict = resolveWecomAccountConflict({
+      const conflict = resolveWeComAccountConflict({
         cfg: cfg as OpenClawConfig,
         accountId: account.accountId,
       });
@@ -155,7 +155,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
       };
     },
     resolveAllowFrom: ({ cfg, accountId }) => {
-      const account = resolveWecomAccount({ cfg: cfg as OpenClawConfig, accountId });
+      const account = resolveWeComAccount({ cfg: cfg as OpenClawConfig, accountId });
       // 与其他渠道保持一致：直接返回 allowFrom，空则允许所有人
       const allowFrom = account.agent?.config.dm?.allowFrom ?? account.bot?.config.dm?.allowFrom ?? [];
       return allowFrom.map((entry) => String(entry));
@@ -175,7 +175,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
     resolveReplyToMode: () => "off",
   },
   messaging: {
-    normalizeTarget: normalizeWecomMessagingTarget,
+    normalizeTarget: normalizeWeComMessagingTarget,
     targetResolver: {
       looksLikeId: (raw) => Boolean(raw.trim()),
       hint: "<userid|chatid>",
@@ -206,7 +206,7 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
     }),
     probeAccount: async () => ({ ok: true }),
     buildAccountSnapshot: ({ account, runtime, cfg }) => {
-      const conflict = resolveWecomAccountConflict({
+      const conflict = resolveWeComAccountConflict({
         cfg: cfg as OpenClawConfig,
         accountId: account.accountId,
       });
@@ -241,13 +241,112 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
      * WeCom lifecycle is long-running: keep webhook targets active until
      * gateway stop/reload aborts the account.
      */
-    startAccount: monitorWecomProvider,
+    startAccount: monitorWeComProvider,
     stopAccount: async (ctx) => {
       ctx.setStatus({
         accountId: ctx.account.accountId,
         running: false,
         lastStopAt: Date.now(),
       });
+    },
+
+    /**
+     * **loginWithQrStart — 生成企业微信机器人扫码添加二维码**
+     *
+     * 根据账号的 aibotid/botId 生成二维码，用户扫码后可添加机器人。
+     * 多账号模式下自动选择对应账号的 bot。
+     */
+    loginWithQrStart: async (params) => {
+      const accountId = params.accountId?.trim() || DEFAULT_ACCOUNT_ID;
+      // 从运行时获取当前配置
+      const runtime = await import("./runtime.js").then((m) => m.getWeComRuntime());
+      const cfg = runtime.config?.loadConfig?.() as OpenClawConfig | undefined;
+      if (!cfg) {
+        return { message: "无法读取 OpenClaw 配置", connected: false };
+      }
+
+      const account = resolveWeComAccount({ cfg, accountId });
+      const bot = account.bot;
+      if (!bot?.configured) {
+        return {
+          message: `账号 ${accountId} 未配置 Bot 凭据，请先运行: openclaw channels add wecom`,
+          connected: false,
+        };
+      }
+
+      // 构造企业微信机器人添加链接
+      // aibotid 用于 webhook 模式，botId 用于 websocket 模式
+      const aibotid = bot.config.aibotid?.trim() || bot.botId?.trim();
+      if (!aibotid) {
+        return {
+          message: "Bot 配置中未找到 aibotid 或 botId，请检查配置",
+          connected: false,
+        };
+      }
+
+      const addUrl = `https://work.weixin.qq.com/wework_admin/commdownload?code=${encodeURIComponent(aibotid)}`;
+      const modeLabel = bot.connectionMode === "websocket" ? "WebSocket 长链接" : "Webhook 回调";
+
+      try {
+        const qrDataUrl = await QRCode.toDataURL(addUrl, {
+          width: 400,
+          margin: 2,
+          color: { dark: "#000000", light: "#ffffff" },
+        });
+
+        return {
+          qrDataUrl,
+          message: [
+            `🤖 企业微信机器人扫码添加`,
+            `账号: ${accountId}`,
+            `模式: ${modeLabel}`,
+            `BotID: ${aibotid}`,
+            ``,
+            `请使用企业微信扫描上方二维码添加机器人。`,
+            `如无法扫码，可在企微中搜索 BotID: ${aibotid}`,
+          ].join("\n"),
+          connected: true,
+        };
+      } catch (err) {
+        return {
+          message: `生成二维码失败: ${err instanceof Error ? err.message : String(err)}`,
+          connected: false,
+        };
+      }
+    },
+
+    /**
+     * **loginWithQrWait — 企业微信机器人无需等待扫码确认**
+     *
+     * 企业微信机器人凭据配置完成后即处于可用状态，
+     * 不存在 OAuth 式的扫码等待流程。直接返回已连接。
+     */
+    loginWithQrWait: async (params) => {
+      return {
+        connected: true,
+        message: "企业微信机器人已配置，用户可通过二维码扫码添加。",
+      };
+    },
+
+    logoutAccount: async ({ cfg, accountId }) => {
+      const resolvedAccountId = accountId ?? DEFAULT_ACCOUNT_ID;
+      const account = resolveWeComAccount({ cfg: cfg as OpenClawConfig, accountId: resolvedAccountId });
+      // 清除 Bot 凭据即登出
+      const cleared = !!(account.bot?.configured);
+      if (cleared) {
+        await import("./runtime.js").then((m) =>
+          m.getWeComRuntime().config?.writeConfigFile?.(
+            setWeComBotConfig(cfg as OpenClawConfig, {
+              connectionMode: account.bot?.connectionMode ?? "webhook",
+              token: "",
+              encodingAESKey: "",
+              botId: "",
+              secret: "",
+            }, resolvedAccountId) as any
+          )
+        );
+      }
+      return { cleared, loggedOut: cleared };
     },
   },
 };

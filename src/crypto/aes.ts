@@ -44,7 +44,7 @@ export function pkcs7Unpad(buf: Buffer, blockSize: number): Buffer {
 /**
  * 解密 WeCom 加密消息
  */
-export function decryptWecomEncrypted(params: {
+export function decryptWeComEncrypted(params: {
     encodingAESKey: string;
     receiveId?: string;
     encrypt: string;
@@ -86,7 +86,7 @@ export function decryptWecomEncrypted(params: {
 /**
  * 加密明文为 WeCom 格式
  */
-export function encryptWecomPlaintext(params: {
+export function encryptWeComPlaintext(params: {
     encodingAESKey: string;
     receiveId?: string;
     plaintext: string;

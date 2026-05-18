@@ -4,7 +4,7 @@
  */
 
 import { XMLParser } from "fast-xml-parser";
-import type { WecomAgentInboundMessage } from "../types/index.js";
+import type { WeComAgentInboundMessage } from "../types/index.js";
 
 const xmlParser = new XMLParser({
     ignoreAttributes: false,
@@ -17,7 +17,7 @@ const xmlParser = new XMLParser({
 /**
  * 解析 XML 字符串为消息对象
  */
-export function parseXml(xml: string): WecomAgentInboundMessage {
+export function parseXml(xml: string): WeComAgentInboundMessage {
     const obj = xmlParser.parse(xml);
     const root = obj?.xml ?? obj;
     return root ?? {};
@@ -26,21 +26,21 @@ export function parseXml(xml: string): WecomAgentInboundMessage {
 /**
  * 从 XML 中提取消息类型
  */
-export function extractMsgType(msg: WecomAgentInboundMessage): string {
+export function extractMsgType(msg: WeComAgentInboundMessage): string {
     return String(msg.MsgType ?? "").toLowerCase();
 }
 
 /**
  * 从 XML 中提取发送者 ID
  */
-export function extractFromUser(msg: WecomAgentInboundMessage): string {
+export function extractFromUser(msg: WeComAgentInboundMessage): string {
     return String(msg.FromUserName ?? "");
 }
 
 /**
  * 从 XML 中提取文件名（主要用于 file 消息）
  */
-export function extractFileName(msg: WecomAgentInboundMessage): string | undefined {
+export function extractFileName(msg: WeComAgentInboundMessage): string | undefined {
     const raw = (msg as any).FileName ?? (msg as any).Filename ?? (msg as any).fileName ?? (msg as any).filename;
     if (raw == null) return undefined;
     if (typeof raw === "string") return raw.trim() || undefined;
@@ -63,21 +63,21 @@ export function extractFileName(msg: WecomAgentInboundMessage): string | undefin
 /**
  * 从 XML 中提取接收者 ID (CorpID)
  */
-export function extractToUser(msg: WecomAgentInboundMessage): string {
+export function extractToUser(msg: WeComAgentInboundMessage): string {
     return String(msg.ToUserName ?? "");
 }
 
 /**
  * 从 XML 中提取群聊 ID
  */
-export function extractChatId(msg: WecomAgentInboundMessage): string | undefined {
+export function extractChatId(msg: WeComAgentInboundMessage): string | undefined {
     return msg.ChatId ? String(msg.ChatId) : undefined;
 }
 
 /**
  * 从 XML 中提取 AgentID（兼容 AgentID/agentid 等大小写）
  */
-export function extractAgentId(msg: WecomAgentInboundMessage): string | number | undefined {
+export function extractAgentId(msg: WeComAgentInboundMessage): string | number | undefined {
     const raw =
         (msg as any).AgentID ??
         (msg as any).AgentId ??
@@ -93,7 +93,7 @@ export function extractAgentId(msg: WecomAgentInboundMessage): string | number |
 /**
  * 从 XML 中提取消息内容
  */
-export function extractContent(msg: WecomAgentInboundMessage): string {
+export function extractContent(msg: WeComAgentInboundMessage): string {
     const msgType = extractMsgType(msg);
 
     const asText = (value: unknown): string => {
@@ -143,7 +143,7 @@ export function extractContent(msg: WecomAgentInboundMessage): string {
  * 从 XML 中提取媒体 ID (Image, Voice, Video)
  * 根据官方文档，MediaId 在 Agent 回调中直接位于根节点
  */
-export function extractMediaId(msg: WecomAgentInboundMessage): string | undefined {
+export function extractMediaId(msg: WeComAgentInboundMessage): string | undefined {
     const raw = (msg as any).MediaId ?? (msg as any).MediaID ?? (msg as any).mediaid ?? (msg as any).mediaId;
     if (raw == null) return undefined;
     if (typeof raw === "string") return raw.trim() || undefined;
@@ -173,7 +173,7 @@ export function extractMediaId(msg: WecomAgentInboundMessage): string | undefine
 /**
  * 从 XML 中提取 MsgId（用于去重）
  */
-export function extractMsgId(msg: WecomAgentInboundMessage): string | undefined {
+export function extractMsgId(msg: WeComAgentInboundMessage): string | undefined {
     const raw = (msg as any).MsgId ?? (msg as any).MsgID ?? (msg as any).msgid ?? (msg as any).msgId;
     if (raw == null) return undefined;
     if (typeof raw === "string") return raw.trim() || undefined;

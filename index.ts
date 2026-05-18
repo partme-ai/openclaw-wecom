@@ -1,10 +1,15 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { emptyPluginConfigSchema, ensureConfigHelpers } from "./src/compat/plugin-sdk-shim.js";
 
-import { handleWecomWebhookRequest } from "./src/monitor.js";
-import { setWecomRuntime } from "./src/runtime.js";
+import { handleWeComWebhookRequest } from "./src/monitor.js";
+import { handleWecomWebhookRequest as handleWecomBotWebhook } from "./src/webhook/index.js";
+import { setWeComRuntime } from "./src/runtime.js";
 import { wecomPlugin } from "./src/channel.js";
 import { createWeComMcpTool } from "./src/mcp/index.js";
+import { getSessionChatInfo } from "./src/monitor/state.js";
+import { createWeComAgentWebhookHandler } from "./src/agent/webhook.js";
+import { CHANNEL_ID, WEBHOOK_PATHS } from "./src/types/constants.js";
 
 const plugin = {
   id: "wecom",
@@ -27,20 +32,61 @@ const plugin = {
     // 有充足的异步间隙）。
     void ensureConfigHelpers();
 
-    setWecomRuntime(api.runtime);
+    setWeComRuntime(api.runtime);
     api.registerChannel({ plugin: wecomPlugin });
+
+    // ── Agent webhook HTTP 路由 ────────────────────────────────────────
+    const agentWebhookHandler = createWeComAgentWebhookHandler(api.runtime);
+    const agentRoutes = [WEBHOOK_PATHS.AGENT_PLUGIN, WEBHOOK_PATHS.AGENT];
+    for (const path of agentRoutes) {
+      api.registerHttpRoute({
+        path,
+        handler: agentWebhookHandler,
+        auth: "plugin",
+        match: "prefix",
+      });
+    }
+
+    // ── Bot webhook HTTP 路由（新 webhook 模块，支持多账号签名匹配） ──
+    const botWebhookRoutes = [WEBHOOK_PATHS.BOT_PLUGIN, WEBHOOK_PATHS.BOT_ALT, WEBHOOK_PATHS.BOT];
+    for (const routePath of botWebhookRoutes) {
+      api.registerHttpRoute({
+        path: routePath,
+        handler: handleWecomBotWebhook,
+        auth: "plugin",
+        match: "prefix",
+      });
+    }
+
+    // ── 历史兼容路由（保留 monitor.ts 统一入口） ─────────────────────
     const routes = ["/plugins/wecom", "/wecom"];
     for (const path of routes) {
       api.registerHttpRoute({
         path,
-        handler: handleWecomWebhookRequest,
+        handler: handleWeComWebhookRequest,
         auth: "plugin",
         match: "prefix",
       });
     }
 
     // 注册 wecom_mcp：通过 HTTP 直接调用企业微信 MCP Server
-    api.registerTool(createWeComMcpTool(), { name: "wecom_mcp" });
+    // 使用 factory 函数，每次调用时从 sessionKey 获取原始大小写的 chatId/chatType，
+    // 避免 OpenClaw core 小写化 sessionKey 导致企业微信 API 报 invalid chatid
+    api.registerTool(
+      (ctx: OpenClawPluginToolContext) => {
+        const trustedRequesterUserId =
+          ctx.messageChannel === CHANNEL_ID ? ctx.requesterSenderId?.trim() ?? undefined : undefined;
+
+        const sessionChat = getSessionChatInfo(ctx.sessionKey);
+        return createWeComMcpTool({
+          requesterUserId: trustedRequesterUserId,
+          accountId: ctx.agentAccountId,
+          chatId: sessionChat?.chatId,
+          chatType: sessionChat?.chatType,
+        });
+      },
+      { name: "wecom_mcp" },
+    );
 
     // 注入媒体发送指令和文件大小限制提示词（与官方 @wecom/wecom-openclaw-plugin 保持一致）。
     // 仅 wecom 通道注入，避免污染其他通道（如 Telegram/Discord）的 system prompt。
@@ -69,6 +115,9 @@ const plugin = {
           "- 语音消息仅支持 AMR 格式（.amr），如需发送语音请确保文件为 AMR 格式",
           "- 超过大小限制的图片/视频/语音会被自动转为文件格式发送",
           "- 如果文件超过 20MB，将无法发送，请提前告知用户并尝试缩减文件大小",
+          "",
+          "【发送模板卡片消息】",
+          "当需要向用户发送结构化卡片消息（如通知、投票、按钮选择等）时，请在回复中直接输出 JSON 代码块（```json ... ```），其中 card_type 字段标明卡片类型。详见 wecom-send-template-card 技能。",
         ].join("\n"),
       };
     });

@@ -1,9 +1,9 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { describe, expect, it } from "vitest";
 
-import { resolveWecomAccount } from "./accounts.js";
+import { resolveWeComAccount } from "./accounts.js";
 
-describe("resolveWecomAccount", () => {
+describe("resolveWeComAccount", () => {
   const cfg: OpenClawConfig = {
     channels: {
       wecom: {
@@ -23,14 +23,14 @@ describe("resolveWecomAccount", () => {
   } as OpenClawConfig;
 
   it("does not fall back when explicit accountId does not exist", () => {
-    const account = resolveWecomAccount({ cfg, accountId: "missing" });
+    const account = resolveWeComAccount({ cfg, accountId: "missing" });
     expect(account.accountId).toBe("missing");
     expect(account.enabled).toBe(false);
     expect(account.configured).toBe(false);
   });
 
   it("uses configured default account when accountId is omitted", () => {
-    const account = resolveWecomAccount({ cfg });
+    const account = resolveWeComAccount({ cfg });
     expect(account.accountId).toBe("acct-a");
     expect(account.enabled).toBe(true);
     expect(account.configured).toBe(true);

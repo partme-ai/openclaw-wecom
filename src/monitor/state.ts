@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import type { StreamState, PendingInbound, ActiveReplyState, WecomWebhookTarget } from "./types.js";
-import type { WecomBotInboundMessage as WecomInboundMessage } from "../types/index.js";
+import type { StreamState, PendingInbound, ActiveReplyState, WeComWebhookTarget } from "./types.js";
+import type { WeComBotInboundMessage as WeComInboundMessage } from "../types/index.js";
 
 // Constants
 export const LIMITS = {
@@ -164,8 +164,8 @@ export class StreamStore {
      */
     addPendingMessage(params: {
         conversationKey: string;
-        target: WecomWebhookTarget;
-        msg: WecomInboundMessage;
+        target: WeComWebhookTarget;
+        msg: WeComInboundMessage;
         msgContent: string;
         nonce: string;
         timestamp: string;
@@ -463,6 +463,59 @@ export class ActiveReplyStore {
         }
     }
 }
+
+// ============================================================================
+// 会话 Chat 信息映射（sessionKey → ChatInfo）
+// ============================================================================
+
+export interface SessionChatInfo {
+  chatId: string;
+  chatType: "single" | "group";
+}
+
+const SESSION_CHAT_INFO_MAX_SIZE = 5000;
+
+const sessionChatInfoMap = new Map<string, SessionChatInfo>();
+
+export function setSessionChatInfo(sessionKey: string, info: SessionChatInfo): void {
+  if (!sessionKey) return;
+  if (sessionChatInfoMap.size >= SESSION_CHAT_INFO_MAX_SIZE && !sessionChatInfoMap.has(sessionKey)) {
+    const oldestKey = sessionChatInfoMap.keys().next().value;
+    if (oldestKey !== undefined) {
+      sessionChatInfoMap.delete(oldestKey);
+    }
+  }
+  sessionChatInfoMap.set(sessionKey, info);
+}
+
+export function getSessionChatInfo(sessionKey: string | undefined): SessionChatInfo | undefined {
+  if (!sessionKey) return undefined;
+  return sessionChatInfoMap.get(sessionKey);
+}
+
+export function deleteSessionChatInfo(sessionKey: string): void {
+  sessionChatInfoMap.delete(sessionKey);
+}
+
+// ============================================================================
+// WSClient 实例管理（供拦截器等模块访问）
+// ============================================================================
+
+const wsClientInstances = new Map<string, any>();
+
+export function setWeComWebSocket(accountId: string, client: any): void {
+  wsClientInstances.set(accountId, client);
+}
+
+export function getWeComWebSocket(accountId: string): any | null {
+  return wsClientInstances.get(accountId) ?? null;
+}
+
+export function deleteWeComWebSocket(accountId: string): void {
+  wsClientInstances.delete(accountId);
+}
+
+// ============================================================================
 
 /**
  * **MonitorState (全局监控状态容器)**

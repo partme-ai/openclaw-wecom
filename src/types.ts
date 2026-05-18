@@ -3,33 +3,33 @@
  * Canonical definitions live in `src/types/*`.
  */
 export type {
-  WecomDmConfig,
-  WecomAccountConfig,
-  WecomConfig,
-  ResolvedWecomAccount,
-  WecomInboundQuote,
-  WecomTemplateCard,
-  WecomOutboundMessage,
+  WeComDmConfig,
+  WeComAccountConfig,
+  WeComConfig,
+  ResolvedWeComAccount,
+  WeComInboundQuote,
+  WeComTemplateCard,
+  WeComOutboundMessage,
 } from "./types/index.js";
 
 import type {
-  WecomBotInboundBase,
-  WecomBotInboundText,
-  WecomBotInboundVoice,
-  WecomBotInboundStreamRefresh,
-  WecomBotInboundEvent,
-  WecomBotInboundMessage,
+  WeComBotInboundBase,
+  WeComBotInboundText,
+  WeComBotInboundVoice,
+  WeComBotInboundStreamRefresh,
+  WeComBotInboundEvent,
+  WeComBotInboundMessage,
 } from "./types/index.js";
 
-export type WecomInboundBase = WecomBotInboundBase;
-export type WecomInboundText = WecomBotInboundText;
-export type WecomInboundVoice = WecomBotInboundVoice;
-export type WecomInboundStreamRefresh = WecomBotInboundStreamRefresh;
-export type WecomInboundEvent = WecomBotInboundEvent;
-export type WecomInboundMessage = WecomBotInboundMessage;
+export type WeComInboundBase = WeComBotInboundBase;
+export type WeComInboundText = WeComBotInboundText;
+export type WeComInboundVoice = WeComBotInboundVoice;
+export type WeComInboundStreamRefresh = WeComBotInboundStreamRefresh;
+export type WeComInboundEvent = WeComBotInboundEvent;
+export type WeComInboundMessage = WeComBotInboundMessage;
 
-export type WecomInboundTemplateCardEvent = WecomBotInboundEvent;
-export type WecomTemplateCardEventPayload = {
+export type WeComInboundTemplateCardEvent = WeComBotInboundEvent;
+export type WeComTemplateCardEventPayload = {
   card_type: string;
   event_key: string;
   task_id: string;

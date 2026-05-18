@@ -7,7 +7,7 @@ import crypto from "node:crypto";
 import { API_ENDPOINTS, LIMITS } from "../types/constants.js";
 import type { ResolvedAgentAccount } from "../types/index.js";
 import { readResponseBodyAsBuffer, wecomFetch } from "../http.js";
-import { resolveWecomEgressProxyUrlFromNetwork } from "../config/index.js";
+import { resolveWeComEgressProxyUrlFromNetwork } from "../config/index.js";
 
 /**
  * **TokenCache (AccessToken 缓存结构)**
@@ -98,7 +98,7 @@ export async function getAccessToken(agent: ResolvedAgentAccount): Promise<strin
     cache.refreshPromise = (async () => {
         try {
             const url = `${API_ENDPOINTS.GET_TOKEN}?corpid=${encodeURIComponent(agent.corpId)}&corpsecret=${encodeURIComponent(agent.corpSecret)}`;
-            const res = await wecomFetch(url, undefined, { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
+            const res = await wecomFetch(url, undefined, { proxyUrl: resolveWeComEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
             const json = await res.json() as { access_token?: string; expires_in?: number; errcode?: number; errmsg?: string };
 
             if (!json?.access_token) {
@@ -159,7 +159,7 @@ export async function sendText(params: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-    }, { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
+    }, { proxyUrl: resolveWeComEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
     const json = await res.json() as {
         errcode?: number;
         errmsg?: string;
@@ -202,7 +202,7 @@ export async function uploadMedia(params: {
     const { agent, type, buffer, filename } = params;
     const safeFilename = normalizeUploadFilename(filename);
     const token = await getAccessToken(agent);
-    const proxyUrl = resolveWecomEgressProxyUrlFromNetwork(agent.network);
+    const proxyUrl = resolveWeComEgressProxyUrlFromNetwork(agent.network);
     // 添加 debug=1 参数获取更多错误信息
     const url = `${API_ENDPOINTS.UPLOAD_MEDIA}?access_token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&debug=1`;
 
@@ -307,7 +307,7 @@ export async function sendMedia(params: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-    }, { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
+    }, { proxyUrl: resolveWeComEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
     const json = await res.json() as {
         errcode?: number;
         errmsg?: string;
@@ -346,7 +346,7 @@ export async function downloadMedia(params: {
     const token = await getAccessToken(agent);
     const url = `${API_ENDPOINTS.DOWNLOAD_MEDIA}?access_token=${encodeURIComponent(token)}&media_id=${encodeURIComponent(mediaId)}`;
 
-    const res = await wecomFetch(url, undefined, { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
+    const res = await wecomFetch(url, undefined, { proxyUrl: resolveWeComEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS });
 
     if (!res.ok) {
         throw new Error(`download failed: ${res.status}`);

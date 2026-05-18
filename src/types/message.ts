@@ -7,7 +7,7 @@
  * Bot 模式入站消息基础结构 (JSON)
  */
 /**
- * **WecomBotInboundBase (Bot 入站消息基类)**
+ * **WeComBotInboundBase (Bot 入站消息基类)**
  * 
  * Bot 模式下 JSON 格式回调的基础字段。
  * @property msgid 消息 ID
@@ -17,7 +17,7 @@
  * @property response_url 下行回复 URL (用于被动响应转主动推送)
  * @property from 发送者信息
  */
-export type WecomBotInboundBase = {
+export type WeComBotInboundBase = {
     msgid?: string;
     aibotid?: string;
     chattype?: "single" | "group";
@@ -29,45 +29,63 @@ export type WecomBotInboundBase = {
     attachment_count?: number;
 };
 
-export type WecomBotInboundText = WecomBotInboundBase & {
+export type WeComBotInboundText = WeComBotInboundBase & {
     msgtype: "text";
     text?: { content?: string };
-    quote?: WecomInboundQuote;
+    quote?: WeComInboundQuote;
 };
 
-export type WecomBotInboundVoice = WecomBotInboundBase & {
+export type WeComBotInboundVoice = WeComBotInboundBase & {
     msgtype: "voice";
     voice?: { content?: string };
-    quote?: WecomInboundQuote;
+    quote?: WeComInboundQuote;
 };
 
-export type WecomBotInboundVideo = WecomBotInboundBase & {
+export type WeComBotInboundVideo = WeComBotInboundBase & {
     msgtype: "video";
     video?: { url?: string; aeskey?: string };
-    quote?: WecomInboundQuote;
+    quote?: WeComInboundQuote;
 };
 
-export type WecomBotInboundStreamRefresh = WecomBotInboundBase & {
+export type WeComBotInboundStreamRefresh = WeComBotInboundBase & {
     msgtype: "stream";
     stream?: { id?: string };
 };
 
-export type WecomBotInboundEvent = WecomBotInboundBase & {
+export type WeComBotInboundEvent = WeComBotInboundBase & {
     msgtype: "event";
     create_time?: number;
     event?: {
         eventtype?: string;
+        template_card_event?: {
+            card_type?: string;
+            event_key?: string;
+            task_id?: string;
+            selected_items?: {
+                selected_item?: Array<{
+                    question_key?: string;
+                    option_ids?: {
+                        option_id?: string[];
+                    };
+                }>;
+            };
+        };
+        /** 权限变更事件回调（如文档授权） */
+        auth_change_event?: {
+            /** 当前权限列表：1-新建和编辑文档；2-获取成员文档内容 */
+            auth_list?: number[];
+        };
         [key: string]: unknown;
     };
 };
 
 /**
- * **WecomInboundQuote (引用消息)**
+ * **WeComInboundQuote (引用消息)**
  * 
  * 消息中引用的原始内容（如回复某条消息）。
  * 支持引用文本、图片、混合类型、语音、文件等。
  */
-export type WecomInboundQuote = {
+export type WeComInboundQuote = {
     msgtype?: "text" | "image" | "mixed" | "voice" | "file" | "video";
     /** 引用文本内容 */
     text?: { content?: string };
@@ -89,24 +107,24 @@ export type WecomInboundQuote = {
     video?: { url?: string };
 };
 
-export type WecomBotInboundMessage =
-    | WecomBotInboundText
-    | WecomBotInboundVoice
-    | WecomBotInboundVideo
-    | WecomBotInboundStreamRefresh
-    | WecomBotInboundEvent
-    | (WecomBotInboundBase & { quote?: WecomInboundQuote } & Record<string, unknown>);
+export type WeComBotInboundMessage =
+    | WeComBotInboundText
+    | WeComBotInboundVoice
+    | WeComBotInboundVideo
+    | WeComBotInboundStreamRefresh
+    | WeComBotInboundEvent
+    | (WeComBotInboundBase & { quote?: WeComInboundQuote } & Record<string, unknown>);
 
 /**
  * Agent 模式入站消息结构 (解析自 XML)
  */
 /**
- * **WecomAgentInboundMessage (Agent 入站消息)**
+ * **WeComAgentInboundMessage (Agent 入站消息)**
  * 
  * Agent 模式下解析自 XML 的扁平化消息结构。
  * 键名保持 PascalCase (如 `ToUserName`)。
  */
-export type WecomAgentInboundMessage = {
+export type WeComAgentInboundMessage = {
     ToUserName?: string;
     FromUserName?: string;
     CreateTime?: number;
@@ -145,7 +163,7 @@ export type WecomAgentInboundMessage = {
  * 模板卡片类型
  */
 /**
- * **WecomTemplateCard (模板卡片)**
+ * **WeComTemplateCard (模板卡片)**
  * 
  * 复杂的交互式卡片结构。
  * @property card_type 卡片类型: "text_notice" | "news_notice" | "button_interaction" ...
@@ -155,7 +173,7 @@ export type WecomAgentInboundMessage = {
  * @property horizontal_content_list 水平排列的键值列表
  * @property button_list 按钮列表
  */
-export type WecomTemplateCard = {
+export type WeComTemplateCard = {
     card_type: "text_notice" | "news_notice" | "button_interaction" | "vote_interaction" | "multiple_interaction";
     source?: { icon_url?: string; desc?: string; desc_color?: number };
     main_title?: { title?: string; desc?: string };
@@ -188,7 +206,7 @@ export type WecomTemplateCard = {
 /**
  * 出站消息类型
  */
-export type WecomOutboundMessage =
+export type WeComOutboundMessage =
     | { msgtype: "text"; text: { content: string } }
     | { msgtype: "markdown"; markdown: { content: string } }
-    | { msgtype: "template_card"; template_card: WecomTemplateCard };
+    | { msgtype: "template_card"; template_card: WeComTemplateCard };

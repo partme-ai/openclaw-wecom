@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { computeWecomMsgSignature, decryptWecomEncrypted, encryptWecomPlaintext } from "./crypto.js";
+import { computeWeComMsgSignature, decryptWeComEncrypted, encryptWeComPlaintext } from "./crypto.js";
 
 describe("wecom crypto", () => {
   it("round-trips plaintext", () => {
     const encodingAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG"; // 43 chars base64 (plus '=' padding)
     const plaintext = JSON.stringify({ hello: "world" });
-    const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext });
-    const decrypted = decryptWecomEncrypted({ encodingAESKey, receiveId: "", encrypt });
+    const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext });
+    const decrypted = decryptWeComEncrypted({ encodingAESKey, receiveId: "", encrypt });
     expect(decrypted).toBe(plaintext);
   });
 
@@ -15,13 +15,13 @@ describe("wecom crypto", () => {
     const encodingAESKey = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";
     // raw length = 20 + plaintext.length + receiveId.length; choose plaintext length % 32 === 12
     const plaintext = "x".repeat(12);
-    const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext });
-    const decrypted = decryptWecomEncrypted({ encodingAESKey, receiveId: "", encrypt });
+    const encrypt = encryptWeComPlaintext({ encodingAESKey, receiveId: "", plaintext });
+    const decrypted = decryptWeComEncrypted({ encodingAESKey, receiveId: "", encrypt });
     expect(decrypted).toBe(plaintext);
   });
 
   it("computes sha1 msg signature", () => {
-    const sig = computeWecomMsgSignature({
+    const sig = computeWeComMsgSignature({
       token: "token",
       timestamp: "123",
       nonce: "456",

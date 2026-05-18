@@ -1,20 +1,20 @@
 
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 import type { ResolvedBotAccount } from "../types/index.js";
-import type { WecomBotInboundMessage as WecomInboundMessage } from "../types/index.js";
+import type { WeComBotInboundMessage as WeComInboundMessage } from "../types/index.js";
 
 /**
- * **WecomRuntimeEnv (运行时环境)**
+ * **WeComRuntimeEnv (运行时环境)**
  * 
  * 包含基础的日志和错误报告接口，用于解耦对 PluginRuntime 的直接依赖。
  */
-export type WecomRuntimeEnv = {
+export type WeComRuntimeEnv = {
     log?: (message: string) => void;
     error?: (message: string) => void;
 };
 
 /**
- * **WecomWebhookTarget (Webhook 目标上下文)**
+ * **WeComWebhookTarget (Webhook 目标上下文)**
  * 
  * 描述一个注册的 Bot 接收端点。包含处理该端点所需的所有上下文信息。
  * 
@@ -25,10 +25,10 @@ export type WecomRuntimeEnv = {
  * @property path 该 Target 注册的 Webhook 路径
  * @property statusSink 用于上报最后收发消息时间的回调
  */
-export type WecomWebhookTarget = {
+export type WeComWebhookTarget = {
     account: ResolvedBotAccount;
     config: OpenClawConfig;
-    runtime: WecomRuntimeEnv;
+    runtime: WeComRuntimeEnv;
     core: PluginRuntime;
     path: string;
     /** 反馈最后接收/发送时间 */
@@ -105,8 +105,8 @@ export type PendingInbound = {
     streamId: string;
     conversationKey: string;
     batchKey: string;
-    target: WecomWebhookTarget;
-    msg: WecomInboundMessage;
+    target: WeComWebhookTarget;
+    msg: WeComInboundMessage;
     contents: string[];
     media?: { buffer: Buffer; contentType: string; filename: string };
     msgids: string[];

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { handleWecomWebhookRequest, registerWecomWebhookTarget } from "./monitor.js";
-import { encryptWecomPlaintext, computeWecomMsgSignature, WECOM_PKCS7_BLOCK_SIZE } from "./crypto.js";
+import { handleWeComWebhookRequest, registerWeComWebhookTarget } from "./monitor.js";
+import { encryptWeComPlaintext, computeWeComMsgSignature, WECOM_PKCS7_BLOCK_SIZE } from "./crypto.js";
 import * as runtime from "./runtime.js";
 import crypto from "node:crypto";
 import { IncomingMessage, ServerResponse } from "node:http";
@@ -91,10 +91,10 @@ describe("Monitor Integration: Inbound Image", () => {
     };
 
     beforeEach(() => {
-        vi.spyOn(runtime, "getWecomRuntime").mockReturnValue(mockCore as any);
+        vi.spyOn(runtime, "getWeComRuntime").mockReturnValue(mockCore as any);
 
         unregisterTarget?.();
-        unregisterTarget = registerWecomWebhookTarget({
+        unregisterTarget = registerWeComWebhookTarget({
             account: {
                 accountId: "test-acc",
                 name: "Test",
@@ -147,12 +147,12 @@ describe("Monitor Integration: Inbound Image", () => {
         // 3. Encrypt the *Inbound Message* Payload (The Envelope)
         const timestamp = String(Math.floor(Date.now() / 1000));
         const nonce = "123456";
-        const encrypt = encryptWecomPlaintext({
+        const encrypt = encryptWeComPlaintext({
             encodingAESKey,
             receiveId,
             plaintext: JSON.stringify(inboundMsg)
         });
-        const msgSignature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+        const msgSignature = computeWeComMsgSignature({ token, timestamp, nonce, encrypt });
 
         const query = new URLSearchParams({
             msg_signature: msgSignature,
@@ -170,7 +170,7 @@ describe("Monitor Integration: Inbound Image", () => {
         const req = createMockRequest(bodyObj, query);
         const res = createMockResponse();
 
-        await handleWecomWebhookRequest(req, res);
+        await handleWeComWebhookRequest(req, res);
 
         // Wait for debounce timer to trigger agent (DEFAULT_DEBOUNCE_MS = 500ms)
         await new Promise(resolve => setTimeout(resolve, 600));

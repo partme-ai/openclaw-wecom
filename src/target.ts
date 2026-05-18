@@ -13,7 +13,7 @@
  *   广播是“发后即忘” (Fire-and-Forget) 的通知模式，而回复是具体的会话模式。
  */
 
-export interface WecomTarget {
+export interface WeComTarget {
     touser?: string;
     toparty?: string;
     totag?: string;
@@ -34,7 +34,7 @@ export interface WecomTarget {
  * 
  * @param raw - The raw target string (e.g. "party:1", "zhangsan", "wecom:wr123")
  */
-export function resolveWecomTarget(raw: string | undefined): WecomTarget | undefined {
+export function resolveWeComTarget(raw: string | undefined): WeComTarget | undefined {
     if (!raw?.trim()) return undefined;
 
     // 1. Remove standard namespace prefixes (移除标准命名空间前缀)

@@ -1,8 +1,8 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
-import type { WecomConfig, WecomNetworkConfig } from "../types/index.js";
+import type { WeComConfig, WeComNetworkConfig } from "../types/index.js";
 
-export function resolveWecomEgressProxyUrlFromNetwork(network?: WecomNetworkConfig): string | undefined {
+export function resolveWeComEgressProxyUrlFromNetwork(network?: WeComNetworkConfig): string | undefined {
   const proxyUrl = network?.egressProxyUrl ??
     process.env.OPENCLAW_WECOM_EGRESS_PROXY_URL ??
     process.env.WECOM_EGRESS_PROXY_URL ??
@@ -14,7 +14,7 @@ export function resolveWecomEgressProxyUrlFromNetwork(network?: WecomNetworkConf
   return proxyUrl.trim() || undefined;
 }
 
-export function resolveWecomEgressProxyUrl(cfg: OpenClawConfig): string | undefined {
-  const wecom = cfg.channels?.wecom as WecomConfig | undefined;
-  return resolveWecomEgressProxyUrlFromNetwork(wecom?.network);
+export function resolveWeComEgressProxyUrl(cfg: OpenClawConfig): string | undefined {
+  const wecom = cfg.channels?.wecom as WeComConfig | undefined;
+  return resolveWeComEgressProxyUrlFromNetwork(wecom?.network);
 }

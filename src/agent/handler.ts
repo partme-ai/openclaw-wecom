@@ -19,10 +19,10 @@ import {
     extractAgentId,
 } from "../shared/xml-parser.js";
 import { sendText, downloadMedia, uploadMedia, sendMedia as sendAgentMedia } from "./api-client.js";
-import { getWecomRuntime } from "../runtime.js";
-import type { WecomAgentInboundMessage } from "../types/index.js";
-import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "../shared/command-auth.js";
-import { resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "../config/index.js";
+import { getWeComRuntime } from "../runtime.js";
+import type { WeComAgentInboundMessage } from "../types/index.js";
+import { buildWeComUnauthorizedCommandPrompt, resolveWeComCommandAuthorization } from "../shared/command-auth.js";
+import { resolveWeComMediaMaxBytes, shouldRejectWeComDefaultRoute } from "../config/index.js";
 import { generateAgentId, shouldUseDynamicAgent, ensureDynamicAgentListed } from "../dynamic-agent.js";
 
 /** 错误提示信息 */
@@ -115,7 +115,7 @@ export type AgentWebhookParams = {
         signature: string;
         encrypted: string;
         decrypted: string;
-        parsed: WecomAgentInboundMessage;
+        parsed: WeComAgentInboundMessage;
     };
     agent: ResolvedAgentAccount;
     config: OpenClawConfig;
@@ -314,7 +314,7 @@ async function processAgentMessage(params: {
     chatId?: string;
     msgType: string;
     content: string;
-    msg: WecomAgentInboundMessage;
+    msg: WeComAgentInboundMessage;
     log?: (msg: string) => void;
     error?: (msg: string) => void;
 }): Promise<void> {
@@ -322,7 +322,7 @@ async function processAgentMessage(params: {
 
     const isGroup = Boolean(chatId);
     const peerId = isGroup ? chatId! : fromUser;
-    const mediaMaxBytes = resolveWecomMediaMaxBytes(config);
+    const mediaMaxBytes = resolveWeComMediaMaxBytes(config);
 
     // 处理媒体文件
     const attachments: any[] = []; // TODO: define specific type
@@ -442,7 +442,7 @@ async function processAgentMessage(params: {
         config,
     });
 
-    if (shouldRejectWecomDefaultRoute({ cfg: config, matchedBy: route.matchedBy, useDynamicAgent })) {
+    if (shouldRejectWeComDefaultRoute({ cfg: config, matchedBy: route.matchedBy, useDynamicAgent })) {
         const prompt =
             `当前账号（${agent.accountId}）未绑定 OpenClaw Agent，已拒绝回退到默认主智能体。` +
             `请在 bindings 中添加：{"agentId":"你的Agent","match":{"channel":"wecom","accountId":"${agent.accountId}"}}`;
@@ -490,7 +490,7 @@ async function processAgentMessage(params: {
         body: finalContent,
     });
 
-    const authz = await resolveWecomCommandAuthorization({
+    const authz = await resolveWeComCommandAuthorization({
         core,
         cfg: config,
         // Agent 门禁应读取 channels.wecom.agent.dm（即 agent.config.dm），而不是 channels.wecom.dm（不存在）
@@ -502,7 +502,7 @@ async function processAgentMessage(params: {
 
     // 命令门禁：未授权时必须明确回复（Agent 侧用私信提示）
     if (authz.shouldComputeAuth && authz.commandAuthorized !== true) {
-        const prompt = buildWecomUnauthorizedCommandPrompt({ senderUserId: fromUser, dmPolicy: authz.dmPolicy, scope: "agent" });
+        const prompt = buildWeComUnauthorizedCommandPrompt({ senderUserId: fromUser, dmPolicy: authz.dmPolicy, scope: "agent" });
         try {
             await sendText({ agent, toUser: fromUser, chatId: undefined, text: prompt });
             log?.(`[wecom-agent] unauthorized command: replied via DM to ${fromUser}`);
@@ -519,7 +519,7 @@ async function processAgentMessage(params: {
         Attachments: attachments.length > 0 ? attachments : undefined,
         From: isGroup ? `wecom:group:${peerId}` : `wecom:${fromUser}`,
         // 使用 wecom-agent: 前缀标记 Agent 会话，确保 outbound 路由不会混入 Bot WS 发送路径。
-        // resolveWecomTarget 已支持剥离 wecom-agent: 前缀（target.ts L41），解析结果不变。
+        // resolveWeComTarget 已支持剥离 wecom-agent: 前缀（target.ts L41），解析结果不变。
         To: `wecom-agent:${fromUser}`,
         SessionKey: route.sessionKey,
         AccountId: route.accountId,

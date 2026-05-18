@@ -2,7 +2,7 @@
 
 ## 背景
 
-| | 官方插件 `@tencent/wecom-openclaw-plugin` | 本项目 `@mocrane/wecom` |
+| | 官方插件 `@tencent/wecom-openclaw-plugin` | 本项目 `@partme.ai/wecom` |
 |---|---|---|
 | **支持的 Bot 模式** | WebSocket 长连接（唯一） | WebSocket + **Webhook (URL 回调)** |
 | **支持 Agent 模式** | 否 | **是**（自建应用，XML 回调 + API 回复） |

@@ -6,14 +6,14 @@
 export {
     decodeEncodingAESKey,
     pkcs7Unpad,
-    decryptWecomEncrypted,
-    encryptWecomPlaintext,
+    decryptWeComEncrypted,
+    encryptWeComPlaintext,
 } from "./aes.js";
 
 // 签名验证
 export {
-    computeWecomMsgSignature,
-    verifyWecomSignature,
+    computeWeComMsgSignature,
+    verifyWeComSignature,
 } from "./signature.js";
 
 // XML 辅助

@@ -6,13 +6,13 @@ import type {
 
 import {
   detectMode,
-  listWecomAccountIds,
-  resolveWecomAccount,
-  resolveWecomAccountConflict,
+  listWeComAccountIds,
+  resolveWeComAccount,
+  resolveWeComAccountConflict,
 } from "./config/index.js";
-import { registerAgentWebhookTarget, registerWecomWebhookTarget } from "./monitor.js";
+import { registerAgentWebhookTarget, registerWeComWebhookTarget } from "./monitor.js";
 import { startWsClient } from "./ws-adapter.js";
-import type { ResolvedWecomAccount, WecomConfig } from "./types/index.js";
+import type { ResolvedWeComAccount, WeComConfig } from "./types/index.js";
 import { WEBHOOK_PATHS } from "./types/constants.js";
 
 type AccountRouteRegistryItem = {
@@ -23,7 +23,7 @@ type AccountRouteRegistryItem = {
 const accountRouteRegistry = new Map<string, AccountRouteRegistryItem>();
 
 function logRegisteredRouteSummary(
-  ctx: ChannelGatewayContext<ResolvedWecomAccount>,
+  ctx: ChannelGatewayContext<ResolvedWeComAccount>,
   preferredOrder: string[],
 ): void {
   const seen = new Set<string>();
@@ -52,11 +52,11 @@ function logRegisteredRouteSummary(
 }
 
 function resolveExpectedRouteSummaryAccountIds(cfg: OpenClawConfig): string[] {
-  return listWecomAccountIds(cfg)
+  return listWeComAccountIds(cfg)
     .filter((accountId) => {
-      const conflict = resolveWecomAccountConflict({ cfg, accountId });
+      const conflict = resolveWeComAccountConflict({ cfg, accountId });
       if (conflict) return false;
-      const account = resolveWecomAccount({ cfg, accountId });
+      const account = resolveWeComAccount({ cfg, accountId });
       if (!account.enabled || !account.configured) return false;
       return Boolean(account.bot?.configured || account.agent?.configured);
     })
@@ -111,13 +111,13 @@ function resolveAgentRegistrationPaths(params: { accountId: string; matrixMode: 
  * Keeps WeCom webhook targets registered for the account lifecycle.
  * The promise only settles after gateway abort/reload signals shutdown.
  */
-export async function monitorWecomProvider(
-  ctx: ChannelGatewayContext<ResolvedWecomAccount>,
+export async function monitorWeComProvider(
+  ctx: ChannelGatewayContext<ResolvedWeComAccount>,
 ): Promise<void> {
   const account = ctx.account;
   const cfg = ctx.cfg as OpenClawConfig;
   const expectedRouteSummaryAccountIds = resolveExpectedRouteSummaryAccountIds(cfg);
-  const conflict = resolveWecomAccountConflict({
+  const conflict = resolveWeComAccountConflict({
     cfg,
     accountId: account.accountId,
   });
@@ -130,7 +130,7 @@ export async function monitorWecomProvider(
     });
     throw new Error(conflict.message);
   }
-  const mode = detectMode(cfg.channels?.wecom as WecomConfig | undefined);
+  const mode = detectMode(cfg.channels?.wecom as WeComConfig | undefined);
   const matrixMode = mode === "matrix";
   const bot = account.bot;
   const agent = account.agent;
@@ -193,7 +193,7 @@ export async function monitorWecomProvider(
         });
         for (const path of paths) {
           unregisters.push(
-            registerWecomWebhookTarget({
+            registerWeComWebhookTarget({
               account: bot,
               config: cfg,
               runtime: ctx.runtime,
