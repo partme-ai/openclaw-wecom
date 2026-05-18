@@ -4,6 +4,11 @@
   "type": "module",
   "description": "OpenClaw WeCom (WeChat Work) intelligent bot channel plugin",
   "main": "index.ts",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --config vitest.config.ts run"
+  },
   "files": [
     "index.ts",
     "src/",
